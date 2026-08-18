@@ -1,0 +1,1015 @@
+================================================================================
+E-COMMERCE DATABASE DESIGN
+================================================================================
+Style       : Single database (modular monolith)
+DB engine   : PostgreSQL recommended (SQL Server also fine)
+Strategy    : TenantId stub from day 1 (default tenant) for future SaaS
+Naming      : snake_case tables; module prefixes optional (shown without prefix)
+
+
+================================================================================
+1. DESIGN PRINCIPLES
+================================================================================
+
+1. Soft delete where business data must be recoverable (products, users, coupons)
+2. Never hard-delete paid orders / payments — use status flags
+3. Audit columns on mutable business tables:
+     created_at, created_by, updated_at, updated_by, is_deleted, deleted_at
+4. Money as decimal(18,2) + currency_code (ISO) — avoid float
+5. Stock changes only via stock_movements (audit trail) — not silent UPDATEs alone
+6. Orders snapshot product name/price at purchase time (order_items)
+7. Prefer lookup/status enums as smallint or varchar + check constraint
+8. All FKs indexed; hot filters (status, created_at, slug, sku) indexed
+9. tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'
+   on tenant-owned tables (ready for Phase 4)
+
+
+================================================================================
+2. ENTITY RELATIONSHIP DIAGRAM — CORE (PHASE 1 MVP)
+================================================================================
+
+  ┌──────────┐       ┌──────────────┐       ┌─────────────┐
+  │  roles   │◄──M:N─│    users     │───────│  addresses  │
+  └──────────┘       └──────┬───────┘       └─────────────┘
+                            │
+              ┌─────────────┼─────────────────────────────┐
+              │             │                             │
+              ▼             ▼                             ▼
+       ┌──────────┐  ┌────────────┐               ┌────────────┐
+       │  carts   │  │   orders   │───────────────│  payments  │
+       └────┬─────┘  └─────┬──────┘               └─────┬──────┘
+            │              │                            │
+            ▼              ▼                            ▼
+     ┌────────────┐ ┌─────────────┐              ┌────────────┐
+     │ cart_items │ │ order_items │              │  refunds   │ (P2)
+     └─────┬──────┘ └──────┬──────┘              └────────────┘
+           │               │
+           └───────┬───────┘
+                   ▼
+            ┌──────────────┐      ┌──────────────────┐
+            │   products   │◄─────│    categories    │  (tree: parent_id)
+            └──────┬───────┘      └──────────────────┘
+                   │
+                   ▼
+         ┌───────────────────┐       ┌────────────────┐
+         │ product_variants  │───────│  stock_items   │
+         └───────────────────┘       └───────┬────────┘
+                                             │
+                                             ▼
+                                     ┌─────────────────┐
+                                     │ stock_movements │
+                                     └─────────────────┘
+
+  products ──◄── product_images
+  orders   ──◄── order_status_history
+  shipping_zones ──◄── shipping_rates
+  store_settings (singleton / key-value)
+  media_assets (shared file registry)
+
+
+================================================================================
+3. MERMAID ER DIAGRAM — FULL LOGICAL MODEL
+================================================================================
+(Paste into any Mermaid viewer / GitHub / Notion)
+
+erDiagram
+  TENANTS ||--o{ USERS : has
+  TENANTS ||--o{ PRODUCTS : owns
+  TENANTS ||--o{ ORDERS : owns
+
+  ROLES ||--o{ USER_ROLES : assigned
+  USERS ||--o{ USER_ROLES : has
+  USERS ||--o{ ADDRESSES : has
+  USERS ||--o{ REFRESH_TOKENS : has
+  USERS ||--o{ CARTS : owns
+  USERS ||--o{ ORDERS : places
+  USERS ||--o{ WISHLIST_ITEMS : saves
+  USERS ||--o{ PRODUCT_REVIEWS : writes
+
+  CATEGORIES ||--o{ CATEGORIES : parent
+  CATEGORIES ||--o{ PRODUCTS : contains
+  BRANDS ||--o{ PRODUCTS : brands
+  PRODUCTS ||--o{ PRODUCT_VARIANTS : has
+  PRODUCTS ||--o{ PRODUCT_IMAGES : has
+  PRODUCTS ||--o{ PRODUCT_CATEGORIES : mapped
+  CATEGORIES ||--o{ PRODUCT_CATEGORIES : mapped
+  PRODUCTS ||--o{ PRODUCT_TAGS : tagged
+  TAGS ||--o{ PRODUCT_TAGS : tagged
+
+  PRODUCT_VARIANTS ||--o{ STOCK_ITEMS : stocked_as
+  WAREHOUSES ||--o{ STOCK_ITEMS : holds
+  STOCK_ITEMS ||--o{ STOCK_MOVEMENTS : tracks
+  PRODUCT_VARIANTS ||--o{ CART_ITEMS : added
+  PRODUCT_VARIANTS ||--o{ ORDER_ITEMS : ordered
+  PRODUCT_VARIANTS ||--o{ WISHLIST_ITEMS : saved
+
+  CARTS ||--o{ CART_ITEMS : contains
+  COUPONS ||--o{ CARTS : applied_optional
+  COUPONS ||--o{ ORDERS : redeemed_optional
+  COUPONS ||--o{ COUPON_REDEMPTIONS : logged
+
+  ORDERS ||--o{ ORDER_ITEMS : contains
+  ORDERS ||--o{ ORDER_STATUS_HISTORY : logs
+  ORDERS ||--o{ PAYMENTS : paid_by
+  ORDERS ||--o{ SHIPMENTS : fulfilled_by
+  ORDERS ||--o{ RETURNS : may_have
+  PAYMENTS ||--o{ REFUNDS : may_refund
+  SHIPPING_ZONES ||--o{ SHIPPING_RATES : priced
+  SHIPPING_RATES ||--o{ ORDERS : chosen_optional
+
+  PRODUCTS ||--o{ PRODUCT_REVIEWS : reviewed
+  MEDIA_ASSETS ||--o{ PRODUCT_IMAGES : file
+  MEDIA_ASSETS ||--o{ BANNERS : file
+  CMS_PAGES ||--o{ MEDIA_ASSETS : optional_cover
+
+  NOTIFICATION_TEMPLATES ||--o{ NOTIFICATION_LOGS : used
+  USERS ||--o{ NOTIFICATION_LOGS : receives
+  USERS ||--o{ AUDIT_LOGS : actor
+
+  USERS {
+    uuid id PK
+    uuid tenant_id FK
+    string email UK
+    string phone
+    string password_hash
+    string full_name
+    string status
+    boolean email_verified
+    timestamptz created_at
+  }
+
+  PRODUCTS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid brand_id FK
+    string name
+    string slug UK
+    string product_type
+    string status
+    decimal base_price
+  }
+
+  PRODUCT_VARIANTS {
+    uuid id PK
+    uuid product_id FK
+    string sku UK
+    string name
+    decimal price
+    jsonb attributes
+  }
+
+  ORDERS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid user_id FK
+    string order_number UK
+    string status
+    decimal grand_total
+    string payment_status
+  }
+
+  PAYMENTS {
+    uuid id PK
+    uuid order_id FK
+    string provider
+    string status
+    decimal amount
+    string transaction_ref
+  }
+
+
+================================================================================
+4. MODULE → TABLE MAP
+================================================================================
+
+IDENTITY
+  tenants                 (stub row for single-store; real multi-tenant in P4)
+  users
+  roles
+  user_roles
+  refresh_tokens
+  addresses
+
+CATALOG
+  brands
+  categories
+  products
+  product_categories      (M:N — product in multiple categories)
+  product_variants
+  product_images
+  tags
+  product_tags
+  attributes              (optional P2: Color, Size definitions)
+  attribute_values
+
+INVENTORY
+  warehouses              (P1: one default warehouse)
+  stock_items             (variant_id + warehouse_id unique)
+  stock_movements
+
+CART
+  carts
+  cart_items
+
+ORDERS
+  orders
+  order_items
+  order_status_history
+  returns                 (P2)
+  return_items            (P2)
+
+PAYMENTS
+  payments
+  refunds                 (P2)
+
+SHIPPING
+  shipping_zones
+  shipping_rates
+  shipments               (P2 — tracking)
+
+MARKETING
+  coupons
+  coupon_redemptions
+  banners
+  wishlists / wishlist_items
+
+REVIEWS
+  product_reviews
+
+MEDIA
+  media_assets
+
+CMS
+  cms_pages
+
+NOTIFICATIONS
+  notification_templates
+  notification_logs
+
+SYSTEM
+  store_settings
+  audit_logs
+  outbox_messages         (P3 — reliable events)
+  idempotency_keys        (checkout / payment)
+
+
+================================================================================
+5. TABLE DEFINITIONS (DETAILED)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+A) IDENTITY & ACCESS
+────────────────────────────────────────────────────────────────────────────────
+
+tenants
+--------
+  id              UUID PK
+  name            VARCHAR(200) NOT NULL
+  slug            VARCHAR(100) NOT NULL UNIQUE
+  status          VARCHAR(30) NOT NULL DEFAULT 'active'
+  plan_code       VARCHAR(50) NULL              -- P4
+  created_at      TIMESTAMPTZ NOT NULL
+
+users
+-----
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  email           VARCHAR(255) NOT NULL
+  phone           VARCHAR(30) NULL
+  password_hash   VARCHAR(255) NOT NULL
+  full_name       VARCHAR(200) NOT NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'active'
+                  -- active | locked | disabled
+  email_verified  BOOLEAN NOT NULL DEFAULT false
+  phone_verified  BOOLEAN NOT NULL DEFAULT false
+  last_login_at   TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NULL
+  is_deleted      BOOLEAN NOT NULL DEFAULT false
+  UNIQUE (tenant_id, email)
+
+roles
+-----
+  id              UUID PK
+  tenant_id       UUID NULL               -- NULL = system role
+  code            VARCHAR(50) NOT NULL    -- owner|manager|support|warehouse|customer
+  name            VARCHAR(100) NOT NULL
+  UNIQUE (tenant_id, code)
+
+user_roles
+----------
+  user_id         UUID NOT NULL FK → users.id
+  role_id         UUID NOT NULL FK → roles.id
+  PRIMARY KEY (user_id, role_id)
+
+refresh_tokens
+--------------
+  id              UUID PK
+  user_id         UUID NOT NULL FK → users.id ON DELETE CASCADE
+  token_hash      VARCHAR(255) NOT NULL UNIQUE
+  expires_at      TIMESTAMPTZ NOT NULL
+  revoked_at      TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  user_agent      VARCHAR(300) NULL
+  ip_address      VARCHAR(45) NULL
+
+addresses
+---------
+  id              UUID PK
+  user_id         UUID NOT NULL FK → users.id ON DELETE CASCADE
+  label           VARCHAR(50) NULL            -- Home / Office
+  full_name       VARCHAR(200) NOT NULL
+  phone           VARCHAR(30) NOT NULL
+  line1           VARCHAR(255) NOT NULL
+  line2           VARCHAR(255) NULL
+  city            VARCHAR(100) NOT NULL
+  state           VARCHAR(100) NULL
+  postal_code     VARCHAR(30) NULL
+  country_code    CHAR(2) NOT NULL DEFAULT 'BD'
+  is_default_shipping BOOLEAN NOT NULL DEFAULT false
+  is_default_billing  BOOLEAN NOT NULL DEFAULT false
+  created_at      TIMESTAMPTZ NOT NULL
+
+
+────────────────────────────────────────────────────────────────────────────────
+B) CATALOG
+────────────────────────────────────────────────────────────────────────────────
+
+brands
+------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  name            VARCHAR(150) NOT NULL
+  slug            VARCHAR(150) NOT NULL
+  logo_media_id   UUID NULL FK → media_assets.id
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  UNIQUE (tenant_id, slug)
+
+categories
+----------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  parent_id       UUID NULL FK → categories.id
+  name            VARCHAR(150) NOT NULL
+  slug            VARCHAR(150) NOT NULL
+  description     TEXT NULL
+  image_media_id  UUID NULL FK → media_assets.id
+  sort_order      INT NOT NULL DEFAULT 0
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  UNIQUE (tenant_id, slug)
+
+products
+--------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  brand_id        UUID NULL FK → brands.id
+  name            VARCHAR(255) NOT NULL
+  slug            VARCHAR(255) NOT NULL
+  description     TEXT NULL
+  short_description VARCHAR(500) NULL
+  product_type    VARCHAR(30) NOT NULL DEFAULT 'simple'
+                  -- simple | variant | digital | bundle
+  status          VARCHAR(30) NOT NULL DEFAULT 'draft'
+                  -- draft | active | archived
+  base_price      DECIMAL(18,2) NOT NULL
+  compare_at_price DECIMAL(18,2) NULL
+  cost_price      DECIMAL(18,2) NULL
+  currency_code   CHAR(3) NOT NULL DEFAULT 'BDT'
+  tax_class       VARCHAR(50) NULL
+  weight_grams    INT NULL
+  is_featured     BOOLEAN NOT NULL DEFAULT false
+  meta_title      VARCHAR(255) NULL
+  meta_description VARCHAR(500) NULL
+  published_at    TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NULL
+  created_by      UUID NULL
+  updated_by      UUID NULL
+  is_deleted      BOOLEAN NOT NULL DEFAULT false
+  UNIQUE (tenant_id, slug)
+  INDEX (tenant_id, status)
+  INDEX (tenant_id, is_featured)
+
+product_categories
+------------------
+  product_id      UUID NOT NULL FK → products.id ON DELETE CASCADE
+  category_id     UUID NOT NULL FK → categories.id ON DELETE CASCADE
+  PRIMARY KEY (product_id, category_id)
+
+product_variants
+----------------
+  id              UUID PK
+  product_id      UUID NOT NULL FK → products.id ON DELETE CASCADE
+  sku             VARCHAR(100) NOT NULL
+  barcode         VARCHAR(100) NULL
+  name            VARCHAR(200) NULL          -- "Red / XL"
+  attributes      JSONB NULL                -- {"color":"Red","size":"XL"}
+  price           DECIMAL(18,2) NOT NULL
+  compare_at_price DECIMAL(18,2) NULL
+  cost_price      DECIMAL(18,2) NULL
+  weight_grams    INT NULL
+  is_default      BOOLEAN NOT NULL DEFAULT false
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  created_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (sku)                              -- or UNIQUE(tenant via join)
+  INDEX (product_id)
+
+product_images
+--------------
+  id              UUID PK
+  product_id      UUID NOT NULL FK → products.id ON DELETE CASCADE
+  variant_id      UUID NULL FK → product_variants.id
+  media_id        UUID NOT NULL FK → media_assets.id
+  sort_order      INT NOT NULL DEFAULT 0
+  alt_text        VARCHAR(255) NULL
+  is_primary      BOOLEAN NOT NULL DEFAULT false
+
+tags
+----
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  name            VARCHAR(100) NOT NULL
+  slug            VARCHAR(100) NOT NULL
+  UNIQUE (tenant_id, slug)
+
+product_tags
+------------
+  product_id      UUID NOT NULL FK → products.id ON DELETE CASCADE
+  tag_id          UUID NOT NULL FK → tags.id ON DELETE CASCADE
+  PRIMARY KEY (product_id, tag_id)
+
+
+────────────────────────────────────────────────────────────────────────────────
+C) INVENTORY
+────────────────────────────────────────────────────────────────────────────────
+
+warehouses
+----------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  code            VARCHAR(50) NOT NULL
+  name            VARCHAR(150) NOT NULL
+  is_default      BOOLEAN NOT NULL DEFAULT false
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  UNIQUE (tenant_id, code)
+
+stock_items
+-----------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  variant_id      UUID NOT NULL FK → product_variants.id
+  warehouse_id    UUID NOT NULL FK → warehouses.id
+  quantity_on_hand     INT NOT NULL DEFAULT 0
+  quantity_reserved    INT NOT NULL DEFAULT 0
+  -- available = on_hand - reserved (computed in app or generated column)
+  low_stock_threshold  INT NOT NULL DEFAULT 5
+  updated_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (variant_id, warehouse_id)
+  CHECK (quantity_on_hand >= 0)
+  CHECK (quantity_reserved >= 0)
+
+stock_movements
+---------------
+  id              UUID PK
+  stock_item_id   UUID NOT NULL FK → stock_items.id
+  movement_type   VARCHAR(30) NOT NULL
+                  -- purchase_in | sale_out | reserve | release
+                  -- adjust | return_in | transfer
+  quantity        INT NOT NULL              -- signed: +in / -out
+  reference_type  VARCHAR(50) NULL         -- order | return | manual
+  reference_id    UUID NULL
+  note            VARCHAR(500) NULL
+  created_by      UUID NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  INDEX (stock_item_id, created_at)
+
+
+────────────────────────────────────────────────────────────────────────────────
+D) CART
+────────────────────────────────────────────────────────────────────────────────
+
+carts
+-----
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  user_id         UUID NULL FK → users.id     -- NULL = guest
+  session_id      VARCHAR(100) NULL           -- guest cart key
+  coupon_id       UUID NULL FK → coupons.id
+  currency_code   CHAR(3) NOT NULL DEFAULT 'BDT'
+  expires_at      TIMESTAMPTZ NULL            -- abandoned cart jobs
+  updated_at      TIMESTAMPTZ NOT NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  INDEX (tenant_id, user_id)
+  INDEX (tenant_id, session_id)
+
+cart_items
+----------
+  id              UUID PK
+  cart_id         UUID NOT NULL FK → carts.id ON DELETE CASCADE
+  variant_id      UUID NOT NULL FK → product_variants.id
+  quantity        INT NOT NULL CHECK (quantity > 0)
+  unit_price      DECIMAL(18,2) NOT NULL      -- locked when added (or refresh)
+  UNIQUE (cart_id, variant_id)
+
+
+────────────────────────────────────────────────────────────────────────────────
+E) ORDERS
+────────────────────────────────────────────────────────────────────────────────
+
+orders
+------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  user_id         UUID NULL FK → users.id     -- NULL if guest checkout
+  order_number    VARCHAR(30) NOT NULL        -- human readable UNIQUE per tenant
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+                  -- pending | confirmed | processing | shipped
+                  -- delivered | cancelled | returned
+  payment_status  VARCHAR(30) NOT NULL DEFAULT 'unpaid'
+                  -- unpaid | pending | paid | partially_refunded | refunded | failed
+  currency_code   CHAR(3) NOT NULL
+  subtotal        DECIMAL(18,2) NOT NULL
+  discount_total  DECIMAL(18,2) NOT NULL DEFAULT 0
+  shipping_total  DECIMAL(18,2) NOT NULL DEFAULT 0
+  tax_total       DECIMAL(18,2) NOT NULL DEFAULT 0
+  grand_total     DECIMAL(18,2) NOT NULL
+  coupon_id       UUID NULL FK → coupons.id
+  coupon_code     VARCHAR(50) NULL            -- snapshot
+  shipping_rate_id UUID NULL FK → shipping_rates.id
+  shipping_method_name VARCHAR(100) NULL     -- snapshot
+  customer_email  VARCHAR(255) NOT NULL
+  customer_phone  VARCHAR(30) NULL
+  customer_name   VARCHAR(200) NOT NULL
+  -- shipping address snapshot (denormalized for history)
+  ship_full_name  VARCHAR(200) NOT NULL
+  ship_phone      VARCHAR(30) NOT NULL
+  ship_line1      VARCHAR(255) NOT NULL
+  ship_line2      VARCHAR(255) NULL
+  ship_city       VARCHAR(100) NOT NULL
+  ship_state      VARCHAR(100) NULL
+  ship_postal_code VARCHAR(30) NULL
+  ship_country_code CHAR(2) NOT NULL
+  billing_same_as_shipping BOOLEAN NOT NULL DEFAULT true
+  bill_full_name  VARCHAR(200) NULL
+  bill_phone      VARCHAR(30) NULL
+  bill_line1      VARCHAR(255) NULL
+  bill_line2      VARCHAR(255) NULL
+  bill_city       VARCHAR(100) NULL
+  bill_state      VARCHAR(100) NULL
+  bill_postal_code VARCHAR(30) NULL
+  bill_country_code CHAR(2) NULL
+  customer_note   VARCHAR(1000) NULL
+  internal_note   VARCHAR(1000) NULL
+  placed_at       TIMESTAMPTZ NOT NULL
+  cancelled_at    TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NULL
+  UNIQUE (tenant_id, order_number)
+  INDEX (tenant_id, status, placed_at DESC)
+  INDEX (tenant_id, user_id)
+
+order_items
+-----------
+  id              UUID PK
+  order_id        UUID NOT NULL FK → orders.id ON DELETE RESTRICT
+  variant_id      UUID NULL FK → product_variants.id  -- NULL if variant deleted later
+  product_id      UUID NULL FK → products.id
+  sku             VARCHAR(100) NOT NULL               -- snapshot
+  product_name    VARCHAR(255) NOT NULL               -- snapshot
+  variant_name    VARCHAR(200) NULL
+  unit_price      DECIMAL(18,2) NOT NULL
+  quantity        INT NOT NULL CHECK (quantity > 0)
+  line_subtotal   DECIMAL(18,2) NOT NULL
+  line_discount   DECIMAL(18,2) NOT NULL DEFAULT 0
+  line_total      DECIMAL(18,2) NOT NULL
+  INDEX (order_id)
+
+order_status_history
+--------------------
+  id              UUID PK
+  order_id        UUID NOT NULL FK → orders.id ON DELETE CASCADE
+  from_status     VARCHAR(30) NULL
+  to_status       VARCHAR(30) NOT NULL
+  note            VARCHAR(500) NULL
+  changed_by      UUID NULL FK → users.id
+  created_at      TIMESTAMPTZ NOT NULL
+
+returns  (Phase 2)
+-------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  order_id        UUID NOT NULL FK → orders.id
+  return_number   VARCHAR(30) NOT NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'requested'
+                  -- requested | approved | rejected | received | refunded
+  reason          VARCHAR(500) NOT NULL
+  resolution      VARCHAR(30) NULL            -- refund | exchange | store_credit
+  created_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (tenant_id, return_number)
+
+return_items (Phase 2)
+------------
+  id              UUID PK
+  return_id       UUID NOT NULL FK → returns.id ON DELETE CASCADE
+  order_item_id   UUID NOT NULL FK → order_items.id
+  quantity        INT NOT NULL CHECK (quantity > 0)
+
+
+────────────────────────────────────────────────────────────────────────────────
+F) PAYMENTS
+────────────────────────────────────────────────────────────────────────────────
+
+payments
+--------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  order_id        UUID NOT NULL FK → orders.id
+  provider        VARCHAR(50) NOT NULL
+                  -- cod | stripe | bkash | nagad | sslcommerz | bank_transfer
+  method          VARCHAR(50) NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+                  -- pending | authorized | paid | failed | cancelled | refunded
+  amount          DECIMAL(18,2) NOT NULL
+  currency_code   CHAR(3) NOT NULL
+  transaction_ref VARCHAR(200) NULL
+  provider_payload JSONB NULL               -- webhook raw (sanitize secrets)
+  paid_at         TIMESTAMPTZ NULL
+  failed_at       TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NULL
+  INDEX (order_id)
+  INDEX (tenant_id, status)
+  INDEX (transaction_ref)
+
+refunds (Phase 2)
+-------
+  id              UUID PK
+  payment_id      UUID NOT NULL FK → payments.id
+  order_id        UUID NOT NULL FK → orders.id
+  amount          DECIMAL(18,2) NOT NULL
+  reason          VARCHAR(500) NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+  provider_ref    VARCHAR(200) NULL
+  created_by      UUID NULL FK → users.id
+  created_at      TIMESTAMPTZ NOT NULL
+
+
+────────────────────────────────────────────────────────────────────────────────
+G) SHIPPING
+────────────────────────────────────────────────────────────────────────────────
+
+shipping_zones
+--------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  name            VARCHAR(150) NOT NULL
+  countries       JSONB NULL                 -- ["BD"] or region list
+  cities          JSONB NULL                 -- optional city filter
+  is_active       BOOLEAN NOT NULL DEFAULT true
+
+shipping_rates
+--------------
+  id              UUID PK
+  zone_id         UUID NOT NULL FK → shipping_zones.id ON DELETE CASCADE
+  name            VARCHAR(150) NOT NULL      -- Standard / Express
+  rate_type       VARCHAR(30) NOT NULL
+                  -- flat | weight | price_threshold
+  min_order_amount DECIMAL(18,2) NULL
+  max_order_amount DECIMAL(18,2) NULL
+  min_weight_grams INT NULL
+  max_weight_grams INT NULL
+  price           DECIMAL(18,2) NOT NULL
+  free_above_amount DECIMAL(18,2) NULL
+  estimated_days_min INT NULL
+  estimated_days_max INT NULL
+  is_active       BOOLEAN NOT NULL DEFAULT true
+
+shipments (Phase 2)
+---------
+  id              UUID PK
+  order_id        UUID NOT NULL FK → orders.id
+  carrier_code    VARCHAR(50) NULL
+  tracking_number VARCHAR(100) NULL
+  tracking_url    VARCHAR(500) NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+  shipped_at      TIMESTAMPTZ NULL
+  delivered_at    TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+
+
+────────────────────────────────────────────────────────────────────────────────
+H) MARKETING / REVIEWS / WISHLIST (PHASE 2)
+────────────────────────────────────────────────────────────────────────────────
+
+coupons
+-------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  code            VARCHAR(50) NOT NULL
+  name            VARCHAR(150) NULL
+  discount_type   VARCHAR(30) NOT NULL       -- percentage | fixed | free_shipping
+  discount_value  DECIMAL(18,2) NOT NULL
+  min_order_amount DECIMAL(18,2) NULL
+  max_discount_amount DECIMAL(18,2) NULL
+  usage_limit     INT NULL                   -- global
+  usage_per_user  INT NULL
+  used_count      INT NOT NULL DEFAULT 0
+  starts_at       TIMESTAMPTZ NULL
+  ends_at         TIMESTAMPTZ NULL
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  UNIQUE (tenant_id, code)
+
+coupon_redemptions
+------------------
+  id              UUID PK
+  coupon_id       UUID NOT NULL FK → coupons.id
+  user_id         UUID NULL FK → users.id
+  order_id        UUID NOT NULL FK → orders.id
+  discount_amount DECIMAL(18,2) NOT NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (order_id)                         -- one redemption record per order
+
+banners
+-------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  title           VARCHAR(200) NOT NULL
+  media_id        UUID NULL FK → media_assets.id
+  link_url        VARCHAR(500) NULL
+  placement       VARCHAR(50) NOT NULL DEFAULT 'home_hero'
+  sort_order      INT NOT NULL DEFAULT 0
+  starts_at       TIMESTAMPTZ NULL
+  ends_at         TIMESTAMPTZ NULL
+  is_active       BOOLEAN NOT NULL DEFAULT true
+
+wishlist_items
+--------------
+  id              UUID PK
+  user_id         UUID NOT NULL FK → users.id ON DELETE CASCADE
+  variant_id      UUID NOT NULL FK → product_variants.id ON DELETE CASCADE
+  created_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (user_id, variant_id)
+
+product_reviews
+---------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  product_id      UUID NOT NULL FK → products.id ON DELETE CASCADE
+  user_id         UUID NOT NULL FK → users.id
+  order_id        UUID NULL FK → orders.id   -- verified purchase optional
+  rating          SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5)
+  title           VARCHAR(200) NULL
+  body            TEXT NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+                  -- pending | approved | rejected
+  created_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (product_id, user_id)              -- one review per user/product
+
+
+────────────────────────────────────────────────────────────────────────────────
+I) MEDIA / CMS / SETTINGS / SYSTEM
+────────────────────────────────────────────────────────────────────────────────
+
+media_assets
+------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  file_name       VARCHAR(255) NOT NULL
+  file_path       VARCHAR(500) NOT NULL      -- storage key / URL path
+  mime_type       VARCHAR(100) NOT NULL
+  size_bytes      BIGINT NOT NULL
+  width           INT NULL
+  height          INT NULL
+  alt_text        VARCHAR(255) NULL
+  uploaded_by     UUID NULL FK → users.id
+  created_at      TIMESTAMPTZ NOT NULL
+
+cms_pages
+---------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  title           VARCHAR(200) NOT NULL
+  slug            VARCHAR(200) NOT NULL
+  body_html       TEXT NOT NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'draft'
+  meta_title      VARCHAR(255) NULL
+  meta_description VARCHAR(500) NULL
+  published_at    TIMESTAMPTZ NULL
+  UNIQUE (tenant_id, slug)
+
+notification_templates
+----------------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  code            VARCHAR(100) NOT NULL      -- order_placed_email
+  channel         VARCHAR(30) NOT NULL       -- email | sms | push
+  subject         VARCHAR(255) NULL
+  body_template   TEXT NOT NULL
+  is_active       BOOLEAN NOT NULL DEFAULT true
+  UNIQUE (tenant_id, code, channel)
+
+notification_logs
+-----------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  user_id         UUID NULL FK → users.id
+  order_id        UUID NULL FK → orders.id
+  channel         VARCHAR(30) NOT NULL
+  template_code   VARCHAR(100) NULL
+  recipient       VARCHAR(255) NOT NULL
+  status          VARCHAR(30) NOT NULL       -- queued | sent | failed
+  error_message   VARCHAR(1000) NULL
+  sent_at         TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+
+store_settings
+--------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  key             VARCHAR(100) NOT NULL
+  value_json      JSONB NOT NULL
+  UNIQUE (tenant_id, key)
+  -- examples: store.name, store.currency, store.logo_media_id,
+  --           checkout.cod_enabled, tax.default_rate
+
+audit_logs
+----------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  actor_user_id   UUID NULL FK → users.id
+  action          VARCHAR(100) NOT NULL      -- order.status_changed
+  entity_type     VARCHAR(100) NOT NULL
+  entity_id       UUID NULL
+  before_json     JSONB NULL
+  after_json      JSONB NULL
+  ip_address      VARCHAR(45) NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  INDEX (tenant_id, created_at DESC)
+
+idempotency_keys
+----------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL FK → tenants.id
+  key             VARCHAR(100) NOT NULL
+  request_hash    VARCHAR(128) NULL
+  response_json   JSONB NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  expires_at      TIMESTAMPTZ NOT NULL
+  UNIQUE (tenant_id, key)
+
+outbox_messages (Phase 3)
+---------------
+  id              UUID PK
+  tenant_id       UUID NOT NULL
+  event_type      VARCHAR(150) NOT NULL
+  payload_json    JSONB NOT NULL
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending'
+  attempts        INT NOT NULL DEFAULT 0
+  next_attempt_at TIMESTAMPTZ NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  processed_at    TIMESTAMPTZ NULL
+
+
+================================================================================
+6. KEY RELATIONSHIPS (QUICK REFERENCE)
+================================================================================
+
+users.id                 ←── addresses.user_id                 (1:N)
+users.id                 ←── user_roles.user_id                (M:N via roles)
+users.id                 ←── carts.user_id                     (1:N)
+users.id                 ←── orders.user_id                    (1:N)
+
+categories.id            ←── categories.parent_id              (self 1:N tree)
+categories.id            ←── product_categories.category_id    (M:N)
+products.id              ←── product_categories.product_id     (M:N)
+products.id              ←── product_variants.product_id       (1:N)
+products.id              ←── product_images.product_id         (1:N)
+
+product_variants.id      ←── stock_items.variant_id            (1:N per warehouse)
+warehouses.id            ←── stock_items.warehouse_id          (1:N)
+stock_items.id           ←── stock_movements.stock_item_id     (1:N)
+
+carts.id                 ←── cart_items.cart_id                (1:N)
+product_variants.id      ←── cart_items.variant_id             (1:N)
+
+orders.id                ←── order_items.order_id              (1:N)
+orders.id                ←── order_status_history.order_id     (1:N)
+orders.id                ←── payments.order_id                 (1:N)
+orders.id                ←── shipments.order_id                (1:N)
+orders.id                ←── returns.order_id                  (1:N)
+payments.id              ←── refunds.payment_id                (1:N)
+
+shipping_zones.id        ←── shipping_rates.zone_id            (1:N)
+coupons.id               ←── orders.coupon_id                  (N:1 optional)
+products.id              ←── product_reviews.product_id        (1:N)
+
+tenants.id               ←── almost all business tables.tenant_id
+
+
+================================================================================
+7. PHASED TABLE ROLLOUT
+================================================================================
+
+PHASE 1 — MVP (create these first)
+  tenants, users, roles, user_roles, refresh_tokens, addresses
+  brands (optional), categories, products, product_categories
+  product_variants, product_images
+  warehouses, stock_items, stock_movements
+  carts, cart_items
+  shipping_zones, shipping_rates
+  orders, order_items, order_status_history
+  payments
+  media_assets
+  store_settings
+  idempotency_keys
+  notification_templates, notification_logs (email only)
+
+PHASE 2 — Growth
+  coupons, coupon_redemptions, banners
+  wishlist_items, product_reviews
+  returns, return_items, refunds, shipments
+  tags, product_tags
+  cms_pages, audit_logs
+
+PHASE 3 — Scale
+  outbox_messages
+  extra warehouses (multi-warehouse already modeled)
+  loyalty_accounts, loyalty_transactions (add when needed)
+  price_lists, price_list_items (B2B)
+
+PHASE 4 — SaaS
+  Activate real multi-tenant rows in tenants
+  subscription_plans, subscriptions, invoices (platform billing)
+  tenant_domains
+
+
+================================================================================
+8. ORDER STATUS FLOW (STORED IN orders.status)
+================================================================================
+
+  pending ──► confirmed ──► processing ──► shipped ──► delivered
+     │            │              │
+     └────────────┴──────────────┴──► cancelled
+  delivered ──► returned (via returns module)
+
+
+================================================================================
+9. STOCK RULES (IMPORTANT)
+================================================================================
+
+Add to cart / checkout:
+  1) Check available = on_hand - reserved
+  2) On OrderPlaced (payment pending COD or paid online):
+       INSERT stock_movements (reserve)
+       UPDATE stock_items.quantity_reserved += qty
+  3) On ship / confirm sale:
+       movement sale_out; on_hand -= qty; reserved -= qty
+  4) On cancel before ship:
+       movement release; reserved -= qty
+
+Always write stock_movements — enables audit & dispute resolution.
+
+
+================================================================================
+10. INDEXING CHEAT SHEET
+================================================================================
+
+  users (tenant_id, email)
+  products (tenant_id, slug), (tenant_id, status)
+  product_variants (sku), (product_id)
+  stock_items (variant_id, warehouse_id)
+  carts (tenant_id, user_id), (tenant_id, session_id)
+  orders (tenant_id, order_number), (tenant_id, status, placed_at DESC)
+  payments (order_id), (transaction_ref)
+  coupons (tenant_id, code)
+  product_reviews (product_id, status)
+
+
+================================================================================
+11. SAMPLE CARDINALITY SUMMARY
+================================================================================
+
+  Tenant 1 ─── * Users
+  User 1 ─── * Addresses
+  User 1 ─── 1..* Carts (usually 1 active)
+  Cart 1 ─── * CartItems
+  Product 1 ─── * Variants
+  Variant 1 ─── * StockItems (per warehouse)
+  Order 1 ─── * OrderItems
+  Order 1 ─── 1..* Payments
+  Order 1 ─── * StatusHistory rows
+  Category 1 ─── * Child Categories (tree)
+  Product * ─── * Categories
+
+
+================================================================================
+12. NEXT STEP
+================================================================================
+
+1. Pick PostgreSQL (recommended) or SQL Server
+2. Generate Phase-1 migrations from tables in section 7
+3. Seed: 1 tenant, owner user, default warehouse, sample category/products
+4. Enforce stock + order snapshot rules in application services
+
+Say the word and I can generate Phase-1 SQL DDL (CREATE TABLE scripts)
+or an EF Core / Prisma schema from this design.
