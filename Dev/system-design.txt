@@ -1,0 +1,1889 @@
+===============================================================================
+                          S Y S T E M   D E S I G N
+              Software architecture and database design blueprint
+===============================================================================
+
+WHAT THIS DOCUMENT IS
+    The abstract mental map of the system. It defines the *shape* of the
+    software: how code is organised, how data is owned, how parts talk to
+    each other, how the API looks, and how it is tested.
+
+WHAT THIS DOCUMENT IS NOT
+    It does not name a single module. It does not list a feature, a screen,
+    a table of the real domain, or a requirement. Those come later and they
+    are a different topic. Everything here stays true no matter which
+    modules you eventually decide to build.
+
+HOW TO USE IT
+    Read Part 1. It is one page and it is the whole idea. Read the rest when
+    you need the detail. When you later choose your modules and features,
+    every one of them must fit inside these rules without changing them.
+
+PLACEHOLDER NAMES
+    Because no modules are decided yet, this document uses neutral names:
+        Module A, Module B, Module C   - any two or three modules
+        schema  alpha, beta, gamma     - their database schemas
+        tables  widget, widget_part    - any parent/child pair
+    Substitute your real names later. Nothing in the rules depends on them.
+
+
+-------------------------------------------------------------------------------
+CONTENTS
+-------------------------------------------------------------------------------
+    PART 1   THE MENTAL MAP                        the whole idea, one page
+    PART 2   WHICH ARCHITECTURE TO FOLLOW          the choice and the reasons
+    PART 3   DATABASE DESIGN                       schemas and relationships
+    PART 4   FOLDER STRUCTURE                      where code physically goes
+    PART 5   API ARCHITECTURE                      the shape of the interface
+    PART 6   TESTING STRATEGY                      how confidence is bought
+    PART 7   GROWTH PATH                           what changes as it scales
+    PART 8   REFERENCE                             names, glossary, open items
+
+
+===============================================================================
+PART 1 - THE MENTAL MAP
+===============================================================================
+
+1.1  THE SHAPE, IN WORDS
+
+    One application that you deploy as one unit.
+    Inside it, several self-contained modules that do not know each other's
+    internals.
+    One database, in which each module owns a private schema.
+    One HTTP entry point in front of all of it.
+
+    A module is a vertical slice of the whole system, not a layer of it. It
+    owns its own API routes, its own logic, its own tables, and its own
+    migrations. If you deleted a module's folder and its schema, the rest of
+    the system would still compile and run, minus that capability.
+
+
+1.2  THE PICTURE
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                       HOST  (one deployable)                     │
+    │                                                                  │
+    │   HTTP in ─► routing · auth · logging · errors · rate limits     │
+    │                                                                  │
+    │   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐      │
+    │   │   MODULE A    │   │   MODULE B    │   │   MODULE C    │      │
+    │   │               │   │               │   │               │      │
+    │   │  api          │   │  api          │   │  api          │      │
+    │   │  application  │   │  application  │   │  application  │      │
+    │   │  domain       │   │  domain       │   │  domain       │      │
+    │   │  infra        │   │  infra        │   │  infra        │      │
+    │   │  ─────────    │   │  ─────────    │   │  ─────────    │      │
+    │   │  contracts ◄──┼───┼── may call ───┼───┼──► contracts  │      │
+    │   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘      │
+    │           │                   │                   │             │
+    │        ┌──▼───────────────────▼───────────────────▼──┐           │
+    │        │              EVENT BUS (in process)         │           │
+    │        └─────────────────────────────────────────────┘           │
+    │                                                                  │
+    │   PLATFORM (owned by nobody, used by everybody)                  │
+    │   ids · clock · money · result type · errors · outbox · jobs     │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+            ┌──────────────▼───────────────────────────────────┐
+            │            ONE POSTGRESQL DATABASE               │
+            │                                                  │
+            │  schema alpha   schema beta   schema gamma       │
+            │  (Module A)     (Module B)    (Module C)         │
+            │                                                  │
+            │  schema platform            schema reporting     │
+            │  (outbox, jobs, audit)      (read-only views)    │
+            └──────────────────────────────────────────────────┘
+
+    Read the picture twice. Vertical lines are ownership. Horizontal lines
+    are the only two ways modules are allowed to interact.
+
+
+1.3  THE FIVE LAWS
+
+    These do not change. Everything else in this document is a consequence.
+
+    LAW 1 - ONE OWNER
+        Every table has exactly one owning module. Only that module writes
+        it. Only that module runs migrations on it.
+
+    LAW 2 - PUBLISHED SURFACE ONLY
+        A module may use another module's published contract. It may never
+        touch its classes, its tables, or its HTTP routes.
+
+    LAW 3 - ONE DIRECTION
+        Dependencies point one way. If A depends on B, B must never depend
+        on A - not directly, not through a third module. Cycles are a build
+        failure, not a code review comment.
+
+    LAW 4 - OUTSIDE GOES BEHIND A PORT
+        Anything not inside this process - payment provider, mail sender,
+        file storage, search engine, SMS gateway - is used through an
+        interface the module defines, implemented by an adapter the module
+        never imports directly.
+
+    LAW 5 - ADDITIVE FIRST
+        Every change to something published - a column, a contract, an
+        event, an endpoint - is additive first. Removal is a separate,
+        later, deliberate step. Nothing is renamed in place.
+
+
+1.4  WHY THIS SHAPE AND NOT ANOTHER
+
+    You want two things that usually fight each other: the ability to grow
+    module by module without hard coupling, and the ability to ship without
+    running a distributed system.
+
+    This shape gives you the boundaries of microservices with the operations
+    of a single application. The boundaries are real - separate code trees,
+    separate schemas, separate database users, enforced by tests, not by
+    goodwill. But calls between modules are still function calls, there is
+    one deployment, one log stream, one transaction manager, and one
+    database to back up.
+
+    When a module genuinely needs to become its own service, the boundary
+    it already lives behind is exactly the boundary you cut along. Nothing
+    has to be redesigned - the seam is already there.
+
+
+===============================================================================
+PART 2 - WHICH ARCHITECTURE TO FOLLOW
+===============================================================================
+
+2.1  THE SPECTRUM OF REAL CHOICES
+
+    Five points on the line from "one thing" to "many things". The only
+    honest way to choose is to look at what each one costs you every day.
+
+    ┌───┬──────────────────────┬───────────┬────────────┬─────────────────┐
+    │ # │ Style                │ Deploys   │ Databases  │ Daily cost      │
+    ├───┼──────────────────────┼───────────┼────────────┼─────────────────┤
+    │ 1 │ Layered monolith     │ 1         │ 1 schema   │ Very low now,   │
+    │   │ (controllers /       │           │            │ very high later │
+    │   │ services / models)   │           │            │                 │
+    ├───┼──────────────────────┼───────────┼────────────┼─────────────────┤
+    │ 2 │ Modular monolith,    │ 1         │ 1 schema   │ Low. Boundaries │
+    │   │ shared schema        │           │            │ rot silently    │
+    ├───┼──────────────────────┼───────────┼────────────┼─────────────────┤
+    │ 3 │ Modular monolith,    │ 1         │ 1 db,      │ Low-medium.     │
+    │   │ schema per module    │           │ N schemas  │ Boundaries hold │
+    ├───┼──────────────────────┼───────────┼────────────┼─────────────────┤
+    │ 4 │ A few coarse         │ 2-4       │ 1 per      │ Medium-high.    │
+    │   │ services             │           │ service    │ Real network    │
+    ├───┼──────────────────────┼───────────┼────────────┼─────────────────┤
+    │ 5 │ Fine-grained         │ 8+        │ 1 per      │ High. Needs a   │
+    │   │ microservices        │           │ service    │ platform team   │
+    └───┴──────────────────────┴───────────┴────────────┴─────────────────┘
+
+    Note what the table does not say: nothing about how fast the software
+    runs. At the sizes you are planning for, all five perform fine. The
+    difference is entirely in how much change costs.
+
+
+2.2  THE DECISION
+
+    ► FOLLOW OPTION 3: A MODULAR MONOLITH WITH ONE SCHEMA PER MODULE,
+      BUILT SO THAT ANY MODULE CAN BE EXTRACTED LATER WITHOUT A REWRITE.
+
+    Three sub-decisions come with it:
+
+    a) Inside every module, the same four-layer arrangement (Part 2.5),
+       organised by use case rather than by technical type.
+    b) Between modules, synchronous contract calls for questions and
+       asynchronous events for consequences (Part 2.8).
+    c) In the database, one schema per module, no foreign keys across
+       schema lines, one writer per table (Part 3).
+
+    Adopt schema-per-module on day one, not later. Splitting a shared
+    schema after the fact is one of the most expensive refactors there is,
+    because by then hundreds of queries join across the lines you are
+    trying to draw. Creating the schemas at the start costs an afternoon.
+
+
+2.3  WHY NOT THE OTHERS  (decision record)
+
+    Option 1, layered monolith - rejected.
+        The layers are technical, not functional, so every feature spreads
+        across all of them and nothing is ever self-contained. There is no
+        seam to cut later. This is the architecture that produces the
+        sentence "we cannot change that, it touches everything".
+
+    Option 2, modular monolith on a shared schema - rejected.
+        Code boundaries with no data boundary do not survive. The first
+        deadline produces a join into someone else's table, and that join
+        is invisible to code review because it is just SQL that works.
+        Six months later the modules are welded together through the
+        database and nobody can point to when it happened.
+
+    Option 4, a few coarse services - rejected for now, available later.
+        This is the natural next step, not the starting point. Choosing it
+        now means paying for network calls, distributed transactions,
+        multiple deployments, and cross-service debugging before you have
+        the traffic or the team that makes those costs worthwhile. Option 3
+        arrives here by promoting one module at a time (Part 7).
+
+    Option 5, fine-grained microservices - rejected.
+        Everything in Option 4, multiplied, plus service discovery, tracing
+        infrastructure, contract versioning across many teams, and an
+        on-call rotation. It solves organisational problems - many teams
+        needing to deploy independently - that a small team does not have.
+
+    Two rules of thumb behind all of this: you cannot design good service
+    boundaries before you understand the domain, and you should not pay a
+    distributed-systems tax to solve a problem you do not have yet.
+
+
+2.4  WHAT "EXTRACTION-READY" MEANS, CONCRETELY
+
+    A module is ready to become a service if all six are true. These are
+    the real design constraints; everything else is style.
+
+    1. It owns its data.        No other module writes its tables.
+    2. It shares no schema.     Its tables live only in its schema.
+    3. No cross-schema FK.      Nothing outside points into it with a
+                                database-enforced constraint.
+    4. It is called through a contract.  Callers depend on an interface
+                                and simple data shapes, never on its
+                                internal types.
+    5. Its side effects are events.  Other modules react to what it
+                                announces, they are not called by it.
+    6. It has its own migrations.   Its schema changes independently.
+
+    If those six hold, extraction is mechanical: move the folder, point it
+    at its own database, replace the in-process contract implementation
+    with an HTTP or gRPC client, replace the in-process event bus with a
+    message broker. No domain logic changes.
+
+
+2.5  INSIDE A MODULE: FOUR LAYERS
+
+    Every module has the same internal arrangement. Same shape everywhere
+    means anyone can open any module and know where to look.
+
+        ┌─────────────────────────────────────────────────────┐
+        │  API            HTTP routes. Reads the request,     │
+        │                 hands it to application, formats    │
+        │                 the reply. No rules live here.      │
+        ├─────────────────────────────────────────────────────┤
+        │  APPLICATION    One handler per use case. Orders    │
+        │                 the steps: validate, load, call     │
+        │                 domain, save, publish event.        │
+        │                 Defines the ports it needs.         │
+        ├─────────────────────────────────────────────────────┤
+        │  DOMAIN         The rules and the vocabulary.       │
+        │                 Entities, value objects, invariants.│
+        │                 Pure. Knows nothing about HTTP, the │
+        │                 database, or any library.           │
+        ├─────────────────────────────────────────────────────┤
+        │  INFRASTRUCTURE Implementations of the ports.       │
+        │                 Repositories, provider clients,     │
+        │                 mappings to tables.                 │
+        ├─────────────────────────────────────────────────────┤
+        │  CONTRACTS      The published surface. Interfaces    │
+        │  (public)       other modules may call, the data     │
+        │                 shapes they exchange, event         │
+        │                 definitions. Nothing else escapes.  │
+        └─────────────────────────────────────────────────────┘
+
+    ORGANISE BY USE CASE, NOT BY TYPE
+        Within a layer, group files by the thing they accomplish, not by
+        what kind of file they are. One folder per use case holding its
+        command, its handler, its validator and its response beats four
+        folders named commands/, handlers/, validators/, responses/. When
+        a use case changes, you edit one folder. When you delete it, you
+        delete one folder. This is the vertical slice idea applied inside
+        the module.
+
+    THE DEPENDENCY DIRECTION
+        api ──► application ──► domain
+                    │
+                    └──► ports (interfaces it declares)
+                              ▲
+                         infrastructure implements them
+
+        Domain depends on nothing. Application depends on domain and on
+        interfaces it owns. Infrastructure depends inward on those
+        interfaces. Nothing points from domain outward. This is the
+        dependency inversion that makes the domain testable with no
+        database and replaceable providers.
+
+    HOW LITERALLY TO TAKE THE LAYERS
+        For a use case that is genuinely just "write this row and return
+        it", the domain layer will be nearly empty and that is correct -
+        do not invent ceremony for it. The layers are a place for
+        complexity to go when it arrives, not a quota to fill. What must
+        never be skipped is the direction of dependencies and the
+        contracts boundary; those are what keep the module extractable.
+
+
+2.6  THE THREE KINDS OF CODE
+
+    Every file in the system is exactly one of these. If you cannot say
+    which, the file is in the wrong place.
+
+    MODULE CODE
+        Belongs to one module. Serves one capability. Free to change
+        without asking anyone, as long as its published contract holds.
+
+    SHARED KERNEL
+        Tiny, stable vocabulary that many modules genuinely need: money,
+        identifier types, dates and time zones, a result/error type, a
+        paging shape. Rules: no business rules, no dependency on any
+        module, and additions require deliberate justification. This
+        folder is a magnet for coupling - every time something is added
+        here, all modules become slightly more welded together. Treat
+        growth of the shared kernel as a warning sign.
+
+    PLATFORM / BUILDING BLOCKS
+        Technical machinery with no domain knowledge: the event bus,
+        outbox processing, background job scheduling, caching helpers,
+        HTTP client wrappers, logging and tracing setup, migration
+        runner. Modules use it; it knows nothing about them.
+
+    And one place that is none of the above: the COMPOSITION ROOT in the
+    host. It is the only place allowed to know that all the modules exist -
+    it registers them, wires up dependencies, and mounts their routes. No
+    module ever reads configuration or resolves dependencies for another.
+
+
+2.7  COMMUNICATION BETWEEN MODULES
+
+    There are exactly two allowed mechanisms, and one question decides
+    which one you need:
+
+        Do I need the answer before I can finish handling this request?
+
+    YES ──► SYNCHRONOUS CONTRACT CALL
+        You call an interface published by the other module. You get data
+        back. You may act on it. Use it for questions: does this exist,
+        what is the current value, is this allowed.
+
+        Rules:
+          - Depend on the interface, not the implementation.
+          - Exchange simple data shapes owned by the contract, never the
+            other module's internal entities.
+          - Read-only by preference. If module A needs module B to change
+            state, that is usually a design smell - reconsider whether the
+            work belongs in A, or whether an event is the honest answer.
+          - Provide batch shapes. A "get one" contract used inside a loop
+            is how you get a hundred queries per page.
+          - Never call back. If B is called by A, B must not call A.
+
+    NO ──► ASYNCHRONOUS EVENT
+        You announce that something happened, in the past tense, and you
+        do not know or care who reacts. Use it for consequences: other
+        modules updating themselves, notifications, logs, projections.
+
+        Rules:
+          - Past tense names, describing facts, not commands.
+          - The publisher does not know its subscribers and never depends
+            on their outcome.
+          - Carry identifiers plus the few values a subscriber needs;
+            do not attach whole object graphs.
+          - Handlers must be idempotent - assume every event can arrive
+            twice.
+          - A failing handler must not fail the publisher's request.
+
+    TWO KINDS OF EVENT, DO NOT MIX THEM
+        Internal (domain) events stay inside one module and may carry rich
+        internal types. Published (integration) events cross module lines,
+        live in the contracts surface, and are versioned like an API.
+
+    RELIABILITY: THE OUTBOX
+        A published event that matters must not be lost if the process
+        dies between committing the database change and delivering the
+        event. Write the event into an outbox table inside the same
+        transaction as the change, and let a background dispatcher deliver
+        it afterwards. Start with this for anything money-related or
+        externally visible; it costs one table and it is the difference
+        between "usually consistent" and "eventually consistent".
+
+    WHAT IS FORBIDDEN, EXPLICITLY
+        - importing anything from another module that is not its contract
+        - reading or writing another module's tables
+        - one module calling another module's HTTP endpoints
+        - two modules writing the same table
+        - a chain of synchronous calls three modules deep
+        - shared mutable state between modules in memory
+
+
+===============================================================================
+PART 3 - DATABASE DESIGN
+===============================================================================
+
+3.1  FIRST, WHAT A SCHEMA ACTUALLY IS
+
+    A schema is a named folder inside one database. It is not a separate
+    database, not a separate server, not a separate connection. Full table
+    names are already two-part - when you write `SELECT * FROM widget`,
+    the database silently resolves it to `public.widget`, because `public`
+    is the default schema that exists in every database.
+
+    So this:
+
+        one database
+          ├── schema alpha
+          │     ├── table widget
+          │     └── table widget_part
+          └── schema beta
+                └── table subscription
+
+    means four things that matter:
+
+        1. Names are scoped. `alpha.entry` and `beta.entry` are different
+           tables and neither has to rename.
+        2. Permissions are per schema. You can grant a database user
+           access to alpha and deny it beta. This is what turns the
+           boundary from a convention into a rule the database enforces.
+        3. Joins across schemas are physically possible - it is one
+           database. The architecture forbids them in module code by
+           policy, not by physics. Part 3.5 explains why, and Part 3.6
+           gives you the one place they are allowed.
+        4. Transactions still work across schemas. One connection, one
+           transaction, any number of schemas. You keep the strongest
+           consistency tool you have, unlike separate databases.
+
+    That last point is the whole reason this design is cheap. You get
+    isolation for the future and single-database simplicity today.
+
+
+3.2  THE LAYOUT
+
+    ONE DATABASE. One backup, one connection pool, one failover story.
+
+    ONE SCHEMA PER MODULE. Named after the module, one word, lower case,
+    no prefix. The module owns every table in it, and owns nothing outside
+    it.
+
+    TWO SCHEMAS THAT BELONG TO NO MODULE:
+
+        platform   Technical tables the machinery needs, not the domain:
+                   the outbox, processed-message keys for idempotency,
+                   background job records, audit trail, feature flags,
+                   schema migration history.
+
+        reporting  Read-only views only. No tables. The single legal place
+                   for SQL that joins across module schemas, for admin
+                   dashboards, exports and analytics. Nothing in a write
+                   path may read from here.
+
+    AND ONE THAT STAYS EMPTY: `public`. Revoke the ability to create in
+    it. Anything that lands there has no owner, and unowned tables are
+    where coupling breeds.
+
+
+3.3  CREATING AND LOCKING THEM
+
+    Two roles per schema. This is the part people skip, and it is the part
+    that makes the boundary real.
+
+        <name>_owner   Owns the schema. Runs migrations. Can change
+                       structure. Used only by the migration tool.
+        <name>_app     Runtime user. Can read and write rows. Cannot
+                       change structure. Used by the running application.
+
+    A runtime user that cannot run DDL means a bug can never accidentally
+    alter your schema, and a compromised application cannot drop a table.
+
+    ---------------------------------------------------------------------
+    -- one-time setup
+    ---------------------------------------------------------------------
+    CREATE DATABASE appdb;
+
+    -- nobody gets to dump things in public
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+    -- roles for one module (repeat per module)
+    CREATE ROLE alpha_owner LOGIN PASSWORD '...';
+    CREATE ROLE alpha_app   LOGIN PASSWORD '...';
+
+    CREATE SCHEMA alpha AUTHORIZATION alpha_owner;
+
+    -- runtime user: see the schema, work with rows, change nothing
+    GRANT USAGE ON SCHEMA alpha TO alpha_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE
+      ON ALL TABLES IN SCHEMA alpha TO alpha_app;
+    GRANT USAGE ON ALL SEQUENCES IN SCHEMA alpha TO alpha_app;
+
+    -- and the same for tables created in the future
+    ALTER DEFAULT PRIVILEGES FOR ROLE alpha_owner IN SCHEMA alpha
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO alpha_app;
+    ALTER DEFAULT PRIVILEGES FOR ROLE alpha_owner IN SCHEMA alpha
+      GRANT USAGE ON SEQUENCES TO alpha_app;
+
+    -- shared machinery: every module's runtime user may use it
+    CREATE SCHEMA platform AUTHORIZATION platform_owner;
+    GRANT USAGE ON SCHEMA platform TO alpha_app, beta_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE
+      ON ALL TABLES IN SCHEMA platform TO alpha_app, beta_app;
+
+    -- reporting: views only, read only
+    CREATE SCHEMA reporting AUTHORIZATION reporting_owner;
+
+    Then the proof that it works:
+
+        -- connected as alpha_app
+        SELECT * FROM beta.subscription;
+        ERROR:  permission denied for schema beta
+
+    That error is the architecture defending itself. No code review
+    required.
+
+    CONNECTIONS
+        Each module connects with its own user and sets its search path so
+        unqualified names resolve to its own schema:
+
+            SET search_path = alpha, platform;
+
+        In practice this means one connection pool per module. That is a
+        few more idle connections and worth it - it is what makes the
+        permission wall exist at runtime.
+
+        If you are early and want one pool to start with, that is an
+        acceptable temporary shortcut, but write the per-schema roles now
+        anyway. Retrofitting permissions after the code has been assuming
+        it can see everything is painful.
+
+
+3.4  THE OWNERSHIP LAW: ONE WRITER PER TABLE
+
+    Two modules writing the same table is the worst form of coupling there
+    is, worse than a shared class, because it is invisible. Nothing in the
+    code says "someone else also writes this". You find out from a bug.
+
+    So: one module writes a table. Everyone else asks that module.
+
+    If a table looks like it needs two writers, one of three things is
+    true:
+
+        a) The table is really two tables. Split it - each module gets the
+           columns it owns, joined by a shared id.
+        b) One writer is really a request. Convert it into a contract call
+           into the owner, or an event the owner reacts to.
+        c) The boundary is drawn in the wrong place. If two modules
+           constantly need to write the same data, they are probably one
+           module.
+
+    Repeat the same law for structure: one module runs migrations on a
+    schema. A migration file never touches two schemas. If a change needs
+    both, that is two migrations in two modules, deployed in a safe order.
+
+
+3.5  ►► HOW ONE SCHEMA RELATES TO ANOTHER  ◄◄
+
+    This is the question that decides whether the design holds up. Every
+    relationship in the system falls into exactly one of three zones, and
+    the zone tells you what to write.
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  Which zone am I in?                                             │
+    │                                                                  │
+    │  Are both tables in the same schema (same module)?               │
+    │      YES ──► ZONE 1: real foreign key. Join freely.              │
+    │      NO  ──► Do I need the value as it is *right now*?           │
+    │                YES ──► ZONE 2: store the id, no foreign key.     │
+    │                NO, I need it as it was at the time of an event   │
+    │                      ──► ZONE 3: copy the value in.              │
+    └──────────────────────────────────────────────────────────────────┘
+
+
+    ZONE 1 - INSIDE ONE SCHEMA: FULL RELATIONAL POWER
+
+        Within a module, use the database the way it was designed. Real
+        foreign keys, cascades, composite uniqueness, check constraints,
+        joins, transactions. There is no architectural reason to hold
+        back, and every reason not to: constraints are the cheapest
+        correctness you will ever buy.
+
+        CREATE TABLE alpha.widget (
+            id          UUID PRIMARY KEY DEFAULT uuidv7(),
+            code        TEXT NOT NULL,
+            status      TEXT NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_widget_code UNIQUE (code)
+        );
+
+        CREATE TABLE alpha.widget_part (
+            id          UUID PRIMARY KEY DEFAULT uuidv7(),
+            widget_id   UUID NOT NULL
+                            REFERENCES alpha.widget(id) ON DELETE CASCADE,
+            position    INT  NOT NULL,
+            CONSTRAINT uq_part_position UNIQUE (widget_id, position)
+        );
+
+        The cascade is safe here because both tables have the same owner.
+        The owner can reason about the whole graph. Deleting a widget
+        deleting its parts is a decision one module gets to make alone.
+
+        Rule of thumb: the more constraints inside a schema, the better.
+        The strictness stays local, so it costs no flexibility elsewhere.
+
+
+    ZONE 2 - ACROSS SCHEMAS, LIVE REFERENCE: STORE THE ID ONLY
+
+        Module B needs to point at something Module A owns, and needs its
+        current state. Store the identifier as a plain column. No foreign
+        key. Index it.
+
+        CREATE TABLE beta.subscription (
+            id           UUID PRIMARY KEY DEFAULT uuidv7(),
+
+            -- owned by Module A (schema alpha).
+            -- Deliberately NOT a foreign key. Resolve through A's
+            -- contract, never by joining alpha.widget.
+            widget_id    UUID NOT NULL,
+
+            state        TEXT NOT NULL,
+            started_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX ix_subscription_widget
+            ON beta.subscription (widget_id);
+
+        Write that comment every single time. In six months it is the only
+        thing standing between this column and someone "fixing" the
+        missing constraint.
+
+        WHY REFUSE THE FOREIGN KEY? It looks like free safety. It is not
+        free - it buys integrity with four kinds of permanent coupling:
+
+          1. Extraction is blocked. The day Module A moves to its own
+             database, that constraint cannot exist, and now you are
+             removing constraints under pressure during a migration.
+          2. Deployment order becomes fixed. B's migration cannot run
+             before A's table exists. Every schema change becomes a
+             cross-module choreography.
+          3. Locks travel. Heavy DDL on alpha.widget takes locks that
+             block writes to beta.subscription. Module A's maintenance
+             window becomes Module B's outage.
+          4. Delete semantics leak. A can no longer decide alone what
+             deleting a widget means - B's rows are now part of that
+             decision, and B never agreed to it.
+
+        WHAT REPLACES THE CONSTRAINT? Four things, and together they are
+        enough:
+
+          - Validate on write. Before inserting, B asks A through the
+            contract whether the id is valid. That is where the check
+            belongs anyway, because A knows the business meaning of valid
+            and a foreign key only knows the row exists.
+          - The owner does not hard delete referenced things. Owners
+            deactivate, archive, or mark discontinued instead. This is
+            almost always what the business wants regardless of coupling.
+          - Readers degrade gracefully. A reference that no longer
+            resolves shows as "unavailable", it does not crash. Write
+            this behaviour deliberately once and reuse it.
+          - A scheduled integrity check reports orphans across boundaries
+            as a metric. You lose instant enforcement and gain a report -
+            which is what you would have in a distributed system anyway,
+            so building it now costs nothing later.
+
+
+    ZONE 3 - ACROSS SCHEMAS, HISTORICAL FACT: COPY THE VALUE
+
+        Sometimes you do not want the current value. You want the value
+        as it was at the moment something happened - what the price was
+        when the agreement was signed, what the address was when the
+        thing shipped, what the name was when the record was written. If
+        you resolve it live, your history silently rewrites itself every
+        time the source changes.
+
+        So copy it in, at the time of the event, into your own table:
+
+        CREATE TABLE beta.ledger_entry (
+            id             UUID PRIMARY KEY DEFAULT uuidv7(),
+
+            -- reference, for tracing back only
+            widget_id      UUID NULL,
+
+            -- copied at the moment of the event; never updated after
+            widget_code    TEXT   NOT NULL,
+            widget_label   TEXT   NOT NULL,
+            amount_minor   BIGINT NOT NULL,
+            currency       CHAR(3) NOT NULL,
+
+            occurred_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        This is not denormalisation you should feel guilty about. It is
+        correctness. The reference id is nullable on purpose: the source
+        row may legitimately disappear one day and this record must
+        survive intact.
+
+        The rule that keeps it honest: copied columns are write-once.
+        Nothing ever back-fills or refreshes them. If you find code
+        updating a snapshot column, you have found a bug.
+
+
+    THE SUMMARY TABLE
+
+    ┌──────────┬───────────────┬──────────┬──────┬───────────────────────┐
+    │ Zone     │ Where         │ Store    │ FK?  │ How you read it       │
+    ├──────────┼───────────────┼──────────┼──────┼───────────────────────┤
+    │ 1        │ same schema   │ id       │ yes  │ SQL join              │
+    │ 2 live   │ across schema │ id       │ no   │ owner's contract      │
+    │ 3 fact   │ across schema │ id+copy  │ no   │ your own column       │
+    └──────────┴───────────────┴──────────┴──────┴───────────────────────┘
+
+
+3.6  READING ACROSS A BOUNDARY WITHOUT A JOIN
+
+    "No cross-schema joins in module code" raises the obvious question:
+    then how do I build a screen that shows data from two modules? Four
+    techniques, in the order you should reach for them.
+
+    TECHNIQUE 1 - TWO QUERIES, JOIN IN MEMORY          (default)
+        Query your own schema. Collect the foreign ids. Ask the other
+        module for all of them in one batch call. Stitch the results
+        together in code.
+        Cost: two round trips instead of one. At page sizes of 20-100
+        rows this is single-digit milliseconds.
+        The trap: calling the batch contract once per row. Always collect
+        the ids first, then make one call.
+
+    TECHNIQUE 2 - PUSH THE WORK INTO THE OWNER
+        If what you need is "give me the ten cheapest / newest / best
+        matching things", do not fetch and sort locally. Ask the owner for
+        that answer through its contract and let it use its own indexes.
+        Cost: a new contract method. Benefit: the query runs where the
+        data and the indexes live.
+
+    TECHNIQUE 3 - A READ MODEL IN YOUR OWN SCHEMA
+        For a screen that is hot, or a list you must sort and filter by
+        another module's fields, keep your own copy. Subscribe to the
+        owner's events and maintain a flat table in your schema shaped
+        exactly like the screen.
+
+            CREATE TABLE beta.widget_view (
+                widget_id    UUID PRIMARY KEY,   -- from events
+                code         TEXT NOT NULL,
+                label        TEXT NOT NULL,
+                is_active    BOOLEAN NOT NULL,
+                synced_at    TIMESTAMPTZ NOT NULL
+            );
+
+        Now the screen is a single-schema query with your own indexes.
+        Cost: eventual consistency, measured in the milliseconds to
+        seconds it takes the event to arrive, plus one event handler to
+        maintain, plus a way to rebuild the table from scratch. Build the
+        rebuild path when you build the table, not later.
+        This is the read-side of CQRS and it is the standard answer to
+        "the boundary is making my query slow". Reach for it when
+        Technique 1 measurably is not enough, not before.
+
+    TECHNIQUE 4 - A VIEW IN THE REPORTING SCHEMA
+        Admin dashboards, exports, analytics and internal tooling
+        legitimately need to see everything at once. Give them one
+        sanctioned place instead of letting them leak into modules:
+
+            CREATE VIEW reporting.widget_activity AS
+            SELECT w.id, w.code, s.state, s.started_at
+            FROM   alpha.widget w
+            LEFT JOIN beta.subscription s ON s.widget_id = w.id;
+
+        The rules that keep this from becoming a back door: views only,
+        never tables; read only; owned by the reporting role; and no
+        module's write path may ever read from this schema. Reporting
+        depends on the modules. Nothing depends on reporting. When a
+        module is later extracted, these views break loudly and get
+        rewritten as a data pipeline - which is exactly the conversation
+        you want to be forced into.
+
+
+3.7  TRANSACTIONS ACROSS BOUNDARIES
+
+    THE RULE
+        One request, one transaction, one module's schema. A handler in
+        Module B opens a transaction, writes only beta tables, commits.
+        Consequences in other modules happen afterwards, through events.
+
+    WHY, GIVEN THAT ONE DATABASE MAKES A CROSS-SCHEMA TRANSACTION
+    TECHNICALLY EASY
+        Because that ease is temporary and the habit is permanent. Every
+        multi-schema transaction is a piece of code that cannot survive
+        extraction, and it will be discovered on the day extraction
+        starts. Also, wide transactions hold locks in tables belonging to
+        modules that are not involved in the request.
+
+    THE EXCEPTION
+        A very small number of operations genuinely cannot tolerate
+        eventual consistency - typically the ones where a gap between two
+        writes would let two users take the same thing, or where money and
+        a commitment must agree exactly.
+
+        For those, a single transaction spanning two schemas is allowed,
+        under three conditions:
+          1. It is written down in this document's appendix as a named,
+             known exception, with the reason.
+          2. It is exercised by an explicit test that asserts atomicity.
+          3. There is a note on what it becomes after extraction -
+             normally a reservation with a timeout, or a saga.
+
+        Two, maybe three of these for the whole system. If you are adding
+        the fourth, the boundaries are wrong, not the rule.
+
+
+3.8  CONVENTIONS
+
+    Decide these once. Every table follows them, forever, so nobody has to
+    think about them again.
+
+    KEYS
+        Primary key `id`, type UUID, time-ordered (UUIDv7). Postgres 18
+        has `uuidv7()` built in; on older versions use an extension or
+        generate it in the application.
+        Time-ordered matters: random UUIDv4 keys scatter inserts across
+        the whole index, which fragments it and hurts write throughput as
+        tables grow. Time-ordered UUIDs append, like an integer key, while
+        still being globally unique - so ids can be generated before
+        insert, are safe to expose, and never collide when a module moves
+        to its own database.
+        Keep any human-facing reference number as a separate column with
+        its own uniqueness. Never expose a sequence as an identifier if
+        the count is a business secret.
+
+    NAMING
+        snake_case everywhere. Table names singular. No schema prefix in
+        table names - the schema already says it. Foreign-ish columns are
+        `<thing>_id`. Booleans read as statements: `is_active`,
+        `has_expired`. Timestamps end in `_at`, dates in `_on`.
+        Constraints and indexes carry their purpose: `pk_`, `uq_`, `ix_`,
+        `fk_`, `ck_` prefixes.
+
+    MONEY
+        Integer minor units (BIGINT), plus an explicit ISO currency code
+        beside it, on every single amount. Never a float. Never an amount
+        column without its currency. Rounding rules live in one shared
+        money type, not spread across handlers.
+
+    TIME
+        TIMESTAMPTZ always, stored in UTC, converted only at the edges.
+        `created_at` and `updated_at` on every table that is written more
+        than once.
+
+    TEXT AND ENUMS
+        TEXT with a CHECK constraint or a lookup table, rather than a
+        database ENUM type - adding a value to a native enum is a schema
+        migration and removing one is nearly impossible. Use a lookup
+        table when the values are business-managed, a CHECK when they are
+        code-managed.
+
+    DELETION
+        Prefer status columns over deletion for anything referenced by
+        another module or by history. When you do need soft delete, use
+        `deleted_at TIMESTAMPTZ NULL` and make partial indexes exclude
+        the deleted rows. Be deliberate: soft delete on every table is a
+        tax on every query.
+
+    MULTI-TENANCY (decide now, even if you have one tenant)
+        If the system will ever host separate businesses, put `tenant_id`
+        on every owned table from the first migration, include it as the
+        leading column of the main indexes, and enforce filtering in one
+        place rather than in every query. Retrofitting a tenant column
+        into a live system is one of the worst migrations that exists.
+
+    AUDIT
+        A single append-only audit table in `platform`, written through
+        one shared helper: who, what, when, before, after. Not one audit
+        table per module.
+
+    INDEXING
+        Index every column you filter or sort by in a real query, and
+        nothing else. Index every cross-schema reference column (Zone 2) -
+        the database will not do it for you, since there is no foreign
+        key. Composite index column order follows how you query:
+        equality columns first, then range, then sort. Create indexes
+        concurrently on live tables. Delete indexes nothing uses; each one
+        is a write-time cost paid on every insert forever.
+
+
+===============================================================================
+PART 4 - FOLDER STRUCTURE
+===============================================================================
+
+4.1  WHAT ANY LAYOUT MUST ACHIEVE
+
+    Judge a proposed folder structure by five questions, not by taste:
+
+    1. Can you see the modules from the top level, without opening
+       anything?
+    2. Does one use case live in one folder?
+    3. Is a module's public surface physically separate from its
+       internals, so the difference is visible?
+    4. Would deleting a module be a single folder deletion plus a single
+       registration line?
+    5. Can the build fail when a boundary is crossed?
+
+    Question 5 is the one that separates real boundaries from good
+    intentions. It is answered by how you split build units - projects,
+    packages, workspaces, whatever your stack calls them.
+
+
+4.2  THREE VIABLE LAYOUTS
+
+    LAYOUT A - ONE BUILD UNIT PER MODULE LAYER          (strictest)
+        Each module is several build units: contracts, domain,
+        application, infrastructure, api. Illegal references are compile
+        errors, because the reference simply does not exist.
+        Cost: many small build units, slower builds, more ceremony to add
+        a module.
+        Choose when: multiple people work in parallel, or the team has
+        been burned by boundary rot before.
+
+    LAYOUT B - ONE BUILD UNIT PER MODULE, PLUS CONTRACTS   (recommended)
+        Each module is two build units: `Module.X.Contracts` (public) and
+        `Module.X` (everything else, with layers as folders inside).
+        Cross-module references are only possible to `.Contracts`, which
+        is the boundary that actually matters. Layer discipline inside a
+        module is enforced by architecture tests instead of by the
+        compiler.
+        Cost: layer violations inside a module are caught by a test rather
+        than the compiler.
+        Choose when: small team, want speed without giving up the module
+        boundary. This is the right default.
+
+    LAYOUT C - ONE BUILD UNIT, FOLDERS ONLY               (prototype)
+        Everything in one project, modules as top-level folders. Nothing
+        is enforced by anything except discipline.
+        Choose when: throwaway spike. Not for a system meant to grow.
+
+    ► Follow Layout B. Splitting a Layout B module into Layout A later is
+      mechanical - move folders into new build units, fix imports - and
+      you will only need it for the one or two modules that get complex
+      enough to deserve it.
+
+
+4.3  THE TREE
+
+    Layout B, fully annotated. Names in <angle brackets> are placeholders.
+
+    /
+    ├── src/
+    │   │
+    │   ├── Host/                        THE ONLY PLACE THAT KNOWS
+    │   │   │                            ALL MODULES EXIST
+    │   │   ├── Program                  boot: config, DI, middleware
+    │   │   ├── ModuleRegistry           registers each module, mounts
+    │   │   │                            its routes. One line per module.
+    │   │   ├── Middleware/              auth, errors, logging,
+    │   │   │                            correlation id, rate limit
+    │   │   └── appsettings / .env       configuration
+    │   │
+    │   ├── Platform/                    TECHNICAL, NO DOMAIN KNOWLEDGE
+    │   │   ├── Messaging/               event bus, handler discovery,
+    │   │   │                            outbox dispatcher, idempotency
+    │   │   ├── Persistence/             connection factory, unit of
+    │   │   │                            work, migration runner
+    │   │   ├── Jobs/                    background scheduling
+    │   │   ├── Observability/           logging, metrics, tracing
+    │   │   ├── Web/                     problem-details writer, paging
+    │   │   │                            helpers, versioning plumbing
+    │   │   └── Security/                token validation, current-user
+    │   │                                accessor, permission checks
+    │   │
+    │   ├── SharedKernel/                TINY. STABLE. GUARDED.
+    │   │   ├── Money, Currency
+    │   │   ├── Ids, Clock
+    │   │   ├── Result, Error, DomainException
+    │   │   └── PagedResult, Cursor
+    │   │
+    │   └── Modules/
+    │       │
+    │       ├── <ModuleA>/
+    │       │   │
+    │       │   ├── <ModuleA>.Contracts/         ◄── PUBLIC. The only
+    │       │   │   │                                thing others may
+    │       │   │   │                                reference.
+    │       │   │   ├── I<ModuleA>Api            interfaces offered
+    │       │   │   ├── Dtos/                    plain data shapes
+    │       │   │   └── Events/                  published events, in
+    │       │   │                                past tense
+    │       │   │
+    │       │   └── <ModuleA>/                   ◄── PRIVATE.
+    │       │       ├── Api/
+    │       │       │   ├── Endpoints             route definitions
+    │       │       │   └── Requests, Responses   HTTP-shaped models
+    │       │       │
+    │       │       ├── Application/
+    │       │       │   ├── <UseCaseOne>/         ONE FOLDER PER
+    │       │       │   │   ├── Command|Query     USE CASE:
+    │       │       │   │   ├── Handler           everything that
+    │       │       │   │   ├── Validator         changes together,
+    │       │       │   │   └── Result            together.
+    │       │       │   ├── <UseCaseTwo>/
+    │       │       │   ├── Ports/                interfaces this
+    │       │       │   │                         module needs from
+    │       │       │   │                         the outside world
+    │       │       │   └── EventHandlers/        reactions to other
+    │       │       │                             modules' events
+    │       │       │
+    │       │       ├── Domain/                   pure rules. no
+    │       │       │   ├── Entities              framework, no db,
+    │       │       │   ├── ValueObjects          no http.
+    │       │       │   ├── DomainEvents          internal only
+    │       │       │   └── Rules / Policies
+    │       │       │
+    │       │       ├── Infrastructure/
+    │       │       │   ├── Persistence/
+    │       │       │   │   ├── DbContext|Queries bound to schema
+    │       │       │   │   │                     `<modulea>` only
+    │       │       │   │   ├── Repositories      port implementations
+    │       │       │   │   └── Migrations/       THIS MODULE'S
+    │       │       │   │                         SCHEMA ONLY
+    │       │       │   ├── Adapters/             external providers
+    │       │       │   └── ReadModels/           projections it keeps
+    │       │       │
+    │       │       └── <ModuleA>Module           the module's own
+    │       │                                     registration: its
+    │       │                                     DI, its routes, its
+    │       │                                     migrations
+    │       │
+    │       ├── <ModuleB>/                        IDENTICAL SHAPE
+    │       └── <ModuleC>/                        IDENTICAL SHAPE
+    │
+    ├── tests/
+    │   ├── Architecture.Tests/          boundary rules (Part 6.4)
+    │   ├── <ModuleA>.UnitTests/         domain + use cases, no I/O
+    │   ├── <ModuleA>.IntegrationTests/  real database, one module
+    │   ├── <ModuleB>.UnitTests/
+    │   ├── <ModuleB>.IntegrationTests/
+    │   ├── System.Tests/                thin, cross-module flows
+    │   └── TestSupport/                 containers, builders, fixtures
+    │
+    ├── db/
+    │   ├── bootstrap/                   schemas, roles, grants (3.3)
+    │   └── reporting/                   cross-schema views (3.6)
+    │
+    ├── docs/
+    │   ├── system-design.txt            this document
+    │   ├── change-guide.txt             how to change things safely
+    │   └── decisions/                   one short file per decision
+    │
+    └── ops/                             containers, CI, deploy
+
+
+4.4  THE STRUCTURAL RULES THE TREE ENCODES
+
+    1. `Modules/` has one child per module. That listing is the system's
+       table of contents.
+    2. Every module has the same internal shape. No exceptions, no
+       "this one is special".
+    3. `.Contracts` is the only cross-module reference target. A build
+       unit referencing another module's non-contracts unit is a failed
+       build or a failed architecture test.
+    4. Migrations live inside the module that owns the schema. There is
+       no central migrations folder.
+    5. `Host/` may reference everything. Nothing references `Host/`.
+    6. `Platform/` and `SharedKernel/` reference no module, ever. If
+       something there needs to know about a module, it belongs in the
+       module.
+    7. One test project per module. The dependency list of a module's
+       test project is a readable statement of what that module actually
+       depends on.
+
+
+4.5  NAME MAPPING BY STACK
+
+    The stack is not decided yet, and the structure does not depend on it.
+    Only the word for "build unit" changes:
+
+    ┌──────────────┬──────────────────┬───────────────────────────────┐
+    │ Stack        │ Build unit       │ Boundary enforcement          │
+    ├──────────────┼──────────────────┼───────────────────────────────┤
+    │ .NET         │ .csproj project  │ project references +          │
+    │              │                  │ architecture tests            │
+    │ Node / TS    │ workspace pkg    │ package deps + eslint         │
+    │              │                  │ import boundaries             │
+    │ Java/Kotlin  │ Gradle module    │ module deps + ArchUnit        │
+    │ Python       │ package w/ its   │ import-linter contracts       │
+    │              │ own pyproject    │                               │
+    │ Go           │ internal/ pkg    │ internal visibility + lint    │
+    └──────────────┴──────────────────┴───────────────────────────────┘
+
+    Whatever the stack, the requirement is the same: crossing a boundary
+    must break something automated. If your stack cannot express that,
+    the architecture tests in Part 6.4 are not optional decoration -
+    they are the wall.
+
+
+===============================================================================
+PART 5 - API ARCHITECTURE
+===============================================================================
+
+5.1  THE STYLE
+
+    ► RESOURCE-ORIENTED HTTP (REST-shaped), JSON, contract-first, with a
+      small number of explicitly action-shaped endpoints where a resource
+      verb would be a lie.
+
+    Why not the alternatives, for now:
+        GraphQL - one flexible query layer over many modules is
+            attractive and it quietly undoes your boundaries: a single
+            query resolves across modules, and you now need per-field
+            authorisation, query-cost limits, and N+1 defences. Consider
+            it later as an optional gateway *in front of* stable REST
+            endpoints, never as the modules' native interface.
+        gRPC - excellent between services. You have no services yet;
+            in-process calls are function calls. It becomes relevant the
+            day a module is extracted.
+        RPC-everything - loses caching, standard status codes and
+            predictability, and every endpoint becomes a special case.
+
+    Pragmatism about REST purity: HATEOAS and strict uniform-interface
+    orthodoxy buy little for a first-party API. Consistency is the actual
+    goal - a developer who has used three of your endpoints should be able
+    to guess the fourth.
+
+
+5.2  SURFACES
+
+    Not all callers are the same. Separate them at the top of the URL,
+    because they differ in authentication, authorisation, rate limits,
+    shape of response, and rate of change.
+
+    ┌────────────────┬──────────────────┬─────────────────────────────┐
+    │ Surface        │ Prefix           │ Caller and characteristics  │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Public         │ /api/v1/...      │ Untrusted or lightly        │
+    │                │                  │ trusted clients. Small      │
+    │                │                  │ payloads, strict limits,    │
+    │                │                  │ most stable contract.       │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Management     │ /api/admin/v1/…  │ Authenticated operators.    │
+    │                │                  │ Richer payloads, bulk       │
+    │                │                  │ operations, permissioned.   │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Machine        │ /api/partner/v1/…│ Other systems. Keys, hard   │
+    │                │                  │ quotas, strongest           │
+    │                │                  │ versioning guarantees.      │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Inbound hooks  │ /hooks/<source>  │ Providers calling you.      │
+    │                │                  │ Signature-verified, always  │
+    │                │                  │ idempotent, respond fast    │
+    │                │                  │ and process asynchronously. │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Operational    │ /health, /ready, │ Infrastructure. Never       │
+    │                │ /metrics         │ publicly exposed.           │
+    └────────────────┴──────────────────┴─────────────────────────────┘
+
+    Each module contributes its own routes to these surfaces and owns
+    them. The host mounts them; it does not define them. A module's
+    endpoints are never called by another module - internal callers use
+    the contract interface, which skips HTTP entirely.
+
+
+5.3  URLS AND RESOURCES
+
+    - Plural nouns for collections: `/widgets`, `/widgets/{id}`.
+    - Nest only to express real containment, and never more than two
+      levels: `/widgets/{id}/parts`. Beyond that, use a filter on a
+      top-level collection.
+    - kebab-case in paths, camelCase (or snake_case) in JSON bodies -
+      pick one for bodies and never mix.
+    - No verbs in resource paths. No file extensions. No trailing slash.
+    - Query parameters for filtering, sorting, paging, sparse fields and
+      expansion; never for identity.
+    - Identifiers in URLs are the opaque `id`. If a human-facing
+      reference code also exists, look it up by filter, not by path.
+
+
+5.4  METHODS AND STATUS CODES
+
+    ┌────────┬───────────────────────┬──────────────────────────────────┐
+    │ Method │ Meaning               │ Success                          │
+    ├────────┼───────────────────────┼──────────────────────────────────┤
+    │ GET    │ read, never changes   │ 200, or 404                      │
+    │ POST   │ create, or an action  │ 201 + Location, or 200, or 202   │
+    │ PUT    │ full replace          │ 200 or 204                       │
+    │ PATCH  │ partial update        │ 200 or 204                       │
+    │ DELETE │ remove                │ 204, or 200 with the final state │
+    └────────┴───────────────────────┴──────────────────────────────────┘
+
+    Failure codes, used precisely:
+        400  the body is not valid JSON, or a parameter is unparseable
+        401  no credentials, or bad credentials
+        403  valid credentials, not allowed to do this
+        404  no such resource - also use for "exists but not yours"
+        409  conflict with current state, or a uniqueness collision
+        412  precondition failed (optimistic concurrency via ETag)
+        422  the JSON parsed but the values are semantically wrong
+        429  rate limited - always with Retry-After
+        500  unexpected. Never carries internal detail to the client.
+        503  dependency unavailable, degraded mode
+
+    The 400/422 split is worth being strict about: 400 means "I could not
+    read your request", 422 means "I read it and it is wrong". Clients
+    handle those two cases completely differently.
+
+    Never return 200 with an error inside the body. Every proxy, retry
+    library, cache and monitor keys off the status code.
+
+
+5.5  WHEN A RESOURCE VERB WOULD BE A LIE
+
+    Some operations are not "create a row" - they are "run this
+    transition". Forcing them into PUT on a status field hides the
+    business rules and makes them impossible to authorise separately.
+
+    Model those as a sub-resource action:
+
+        POST /api/v1/widgets/{id}/activate
+        POST /api/v1/widgets/{id}/cancel
+
+    Keep it disciplined: POST only, no payload beyond what the action
+    needs, one action per endpoint, and the action name is a verb from the
+    business vocabulary. If you have more than a handful per resource, the
+    resource is probably several resources.
+
+
+5.6  VERSIONING
+
+    - Major version in the path: `/api/v1/`. Boring, greppable in logs,
+      cacheable by every CDN, and requires nothing of the client.
+    - v1 lasts as long as possible. A new major version is a last resort,
+      not a release cadence.
+    - Inside a version, only additive change is allowed: new endpoints,
+      new optional request fields, new response fields. Clients are
+      documented as required to ignore unknown fields.
+    - Breaking change means: removing or renaming a field, changing a
+      type, making an optional field required, narrowing an enum,
+      changing a status code, changing pagination or error shape.
+    - Deprecation has a process, not a vibe: announce with `Deprecation`
+      and `Sunset` response headers, keep the old behaviour working for a
+      stated window, log every use so you know who is still calling, and
+      remove only when the log is quiet.
+
+
+5.7  REQUESTS
+
+    IDEMPOTENCY
+        Every mutating POST accepts an `Idempotency-Key` header, and it is
+        required on anything that moves money or creates a commitment.
+        Store `(key, request fingerprint, status, response)` and replay
+        the stored response on a repeat. Two details that matter: keep
+        keys for at least 24 hours, and if the same key arrives with a
+        different payload, reject it rather than guessing.
+        Keys live in the `platform` schema. One implementation, used by
+        every module.
+
+    VALIDATION
+        Two layers, deliberately different. At the edge: shape, types,
+        required fields, ranges, formats - answered with 422 and a
+        field-level error list. Inside the domain: business rules - is
+        this transition legal, is this state allowed - which produce
+        domain errors mapped to 409 or 422. Never enforce a business rule
+        only at the edge; the module must be correct when called through
+        its contract too.
+
+    LIMITS
+        Explicit maximum body size, maximum page size, maximum array
+        lengths, and a timeout on every outbound call. Unbounded input is
+        a denial-of-service waiting to happen.
+
+
+5.8  RESPONSES
+
+    NO GENERIC WRAPPER
+        Return the resource, not `{ data: ..., success: true }`. The
+        status code already carries success. Wrappers add a level of
+        nesting to every client, forever.
+        The one exception is collections, which need paging metadata.
+
+    COLLECTIONS: CURSOR PAGINATION
+        {
+          "items": [ ... ],
+          "nextCursor": "b3BhcXVlLXRva2Vu",
+          "hasMore": true
+        }
+        Cursors, not page numbers, as the default for anything that grows.
+        Offset pagination makes the database count and discard rows it
+        will never return, so page 500 costs far more than page 1, and
+        rows shifting under a paging client silently duplicate or skip
+        items. A cursor is an opaque encoded sort key - treat it as
+        opaque in the contract so you can change what is inside it.
+        Offset paging is acceptable only for small, bounded, admin-facing
+        lists where jumping to page 7 is a genuine requirement.
+
+    SHAPING
+        `?fields=` for sparse responses and `?expand=` for including a
+        related resource, both opt-in. Never expand by default - default
+        responses stay small and predictable. Expansion across a module
+        boundary is a batch contract call (Part 3.6, Technique 1), not a
+        join.
+
+    CACHING AND CONCURRENCY
+        `ETag` on single resources; honour `If-None-Match` for reads and
+        `If-Match` for writes, returning 412 on mismatch. That gives you
+        optimistic concurrency for free instead of last-write-wins.
+
+    DATES, MONEY, ENUMS
+        Timestamps as UTC ISO-8601 strings. Money as an object with minor
+        units and a currency code, never a formatted string and never a
+        float. Enums as stable lower-case strings, and adding a value is
+        additive so clients must tolerate unknown values.
+
+
+5.9  ERRORS: ONE SHAPE, EVERYWHERE
+
+    Use Problem Details (RFC 9457), served as `application/problem+json`:
+
+        {
+          "type":     "https://errors.example.com/validation-failed",
+          "title":    "Validation failed",
+          "status":   422,
+          "detail":   "One or more fields are invalid.",
+          "instance": "/api/v1/widgets",
+          "traceId":  "0af7651916cd43dd8448eb211c80319c",
+          "errors": [
+            { "field": "code", "message": "must not be empty" }
+          ]
+        }
+
+    The load-bearing field is `type`. It is a stable URI, clients switch
+    on it, and it never changes even when you improve the wording. Never
+    make a client string-match `detail` or `title`. Maintain a registry of
+    type URIs in the docs folder, and add a test that asserts the type URI
+    of every error path, so rewording a message can never break a client.
+
+    `traceId` in every error response, matching the correlation id in your
+    logs, so a user can hand you one string and you can find the request.
+    Internal exception text, stack traces and SQL never cross the wire.
+
+    One error writer in `Platform/Web` maps domain errors, validation
+    failures and unhandled exceptions to this shape. No module formats its
+    own errors.
+
+
+5.10 CROSS-CUTTING
+
+    AUTHENTICATION
+        Bearer tokens (JWT or opaque) validated once in host middleware.
+        For interactive clients, Authorization Code with PKCE. Short-lived
+        access tokens, rotating refresh tokens. Machine callers get keys
+        or client credentials, scoped and revocable. Never a
+        long-lived token in a browser-accessible store.
+
+    AUTHORISATION
+        Two levels, both required. Coarse at the edge: is this caller
+        allowed to reach this endpoint at all. Fine inside the module: is
+        this specific record theirs, is this transition permitted in this
+        state. The second cannot be skipped, because the module is also
+        reachable through its contract, where no middleware runs.
+
+    IDENTITY OF THE CALLER
+        Resolved once, exposed to modules through one small abstraction.
+        Modules never parse tokens or read headers themselves.
+
+    RATE LIMITING
+        Per surface and per caller, not global. Always answer 429 with
+        `Retry-After`. Stricter limits on authentication and on anything
+        expensive.
+
+    CORRELATION
+        Accept or generate a correlation id per request, put it in every
+        log line, propagate it through events and background jobs, and
+        return it in error responses. This single habit is the difference
+        between debugging a distributed flow in minutes and in days.
+
+    THE CONTRACT AS SOURCE OF TRUTH
+        An OpenAPI document, generated from the code rather than written
+        beside it, published, versioned and diffed in CI so a breaking
+        change is caught before merge. Generate clients from it instead of
+        hand-writing them.
+
+
+5.11 ONE REQUEST, END TO END
+
+    Follow a single request through the layers once, so the parts have a
+    place to sit:
+
+        HTTP request arrives
+          ├─ host middleware:  correlation id · authentication ·
+          │                    rate limit · body limits
+          ├─ routing:          picks the module's endpoint
+          ├─ module api:       binds the request, edge validation,
+          │                    coarse authorisation
+          ├─ application:      opens a transaction, loads state through
+          │                    a port, applies domain rules, checks fine
+          │                    authorisation, saves, writes an event to
+          │                    the outbox, commits
+          ├─ module api:       maps the result to a response shape
+          └─ host middleware:  serialises, sets status, ETag, logs
+
+        after the response has been sent
+          └─ outbox dispatcher: delivers the event to the bus, which
+             invokes subscriber handlers in other modules - each in its
+             own transaction, each idempotent, each free to fail and be
+             retried without affecting the original request
+
+
+===============================================================================
+PART 6 - TESTING STRATEGY
+===============================================================================
+
+6.1  THE PHILOSOPHY
+
+    Not a pyramid. Layers of confidence, where each layer answers a
+    different question and no layer tries to answer another's.
+
+    The classic advice - very many unit tests, few integration tests -
+    was shaped by infrastructure that no longer exists. Databases used to
+    be slow, shared and manually maintained, so touching one in a test was
+    expensive. Today a container starts a real, empty PostgreSQL in a few
+    seconds, per test class, in CI. The cheapest test that still tells you
+    the truth is now often an integration test.
+
+    Two principles follow, and they decide almost every testing argument:
+
+        A test that needs many mocks to exist is testing wiring, not
+        behaviour. Push it up a level, to where the real components run.
+
+        Test through the boundary you promise, not through the internals
+        you might change. Tests that know internal details are the reason
+        refactoring feels dangerous.
+
+
+6.2  THE FIVE LEVELS
+
+    ┌────┬───────────────────┬──────────────┬────────┬──────────────────┐
+    │ L  │ Level             │ Real deps    │ Share  │ Speed            │
+    ├────┼───────────────────┼──────────────┼────────┼──────────────────┤
+    │ 1  │ Domain unit       │ none         │ 15-25% │ microseconds     │
+    │ 2  │ Use case          │ none / fakes │ 10-15% │ milliseconds     │
+    │ 3  │ Module            │ real db,     │ 50-60% │ tens of ms each  │
+    │    │ integration       │ real bus     │        │ after startup    │
+    │ 4  │ System flow       │ whole host   │ <5%    │ seconds          │
+    │ 5  │ Guard             │ none         │ ~5%    │ milliseconds     │
+    │    │ (architecture +   │              │        │                  │
+    │    │  contract)        │              │        │                  │
+    └────┴───────────────────┴──────────────┴────────┴──────────────────┘
+
+    Percentages are of test count, and they are a description of a healthy
+    suite rather than a target to hit.
+
+
+    LEVEL 1 - DOMAIN UNIT TESTS
+        What: entities, value objects, invariants, state machines,
+        calculations. Pure functions of their inputs.
+        No database, no container, no dependency injection, no mocks -
+        if a domain test needs a mock, the domain is depending on
+        something it should not.
+        These are where you test the awkward cases exhaustively: the
+        boundary values, the rounding, the illegal transitions. Cheap
+        enough to write fifty of.
+
+    LEVEL 2 - USE CASE TESTS
+        What: one application handler, with its ports replaced by
+        in-memory fakes. Answers "does this use case orchestrate the
+        right steps and produce the right outcome".
+        Use them when the handler has interesting branching that would be
+        tedious to set up through the database. When the handler is
+        mostly load-change-save, skip this level and test it at Level 3
+        instead - the Level 3 test is barely slower and proves more.
+
+    LEVEL 3 - MODULE INTEGRATION TESTS            (the centre of gravity)
+        What: one module, exercised through its real entry points - HTTP
+        endpoint or contract interface - against a real database in a
+        container and the real in-process event bus. Only external
+        providers are faked.
+        This is where most of your confidence comes from, because it is
+        the only level that proves the parts fit: routing, binding,
+        authorisation, the handler, the transaction, the SQL, the
+        constraints, the migrations, and the event actually being
+        published.
+        Test through the module's public surface. Assert on responses,
+        on published events, and on the database state - never on
+        internal calls.
+        Isolation, in order of preference: a fresh schema per test class,
+        a transaction rolled back per test, or truncation between tests.
+        Never a shared database that accumulates state between tests -
+        that is the failure mode that makes people distrust the suite.
+        One integration project per module, so the module's real
+        dependency list stays visible.
+
+    LEVEL 4 - SYSTEM FLOW TESTS
+        What: the whole host running, a handful of flows that cross
+        module boundaries, asserted end to end including the event-driven
+        after-effects.
+        Deliberately thin. Pick the two or three flows whose failure would
+        be unacceptable, and stop. These tests are the slowest, the most
+        brittle, and the hardest to diagnose - a large suite of them is a
+        suite people learn to ignore.
+        One thing they must cover that nothing else does: that an event
+        published by one module is actually received and acted on by
+        another, including the outbox round trip.
+
+    LEVEL 5 - GUARD TESTS
+        What: tests that protect the architecture and the contracts
+        rather than the behaviour. They run in milliseconds and they are
+        the reason the design in this document survives a year of
+        deadlines. See 6.3 and 6.4.
+
+
+6.3  ARCHITECTURE TESTS - THE WALL
+
+    Automated assertions about structure. Every law in Part 1 and every
+    rule in Part 4 that the compiler cannot enforce becomes one of these.
+    Break a rule, fail the build.
+
+    Encode at least these:
+
+    BOUNDARIES
+        1. No module's internal build unit references another module's
+           internal build unit. Only `.Contracts` is referenceable.
+        2. No type outside a module names a type inside it, other than
+           its contracts types.
+        3. No circular references anywhere - between modules, between
+           layers, or inside the platform.
+
+    LAYERS
+        4. Domain references no framework, no persistence library, no
+           HTTP type, no other module.
+        5. Application references domain and ports, never infrastructure.
+        6. Api references application, never infrastructure or a database
+           type.
+        7. Only the host references infrastructure and composition.
+
+    PURITY OF THE PUBLIC SURFACE
+        8. Contracts build units depend on nothing but the shared kernel -
+           no persistence library, no framework, no module internals.
+        9. No entity or persistence type is exposed through a contract.
+       10. Published events are immutable and live in contracts.
+
+    DATA OWNERSHIP
+       11. Every persistence type is mapped to its own module's schema,
+           and no query text in a module mentions another module's schema
+           name.
+       12. Every migration in a module touches only that module's schema.
+       13. If multi-tenant: every owned table's type is tenant-scoped or
+           explicitly marked as global.
+
+    CONVENTIONS
+       14. Handlers, endpoints and events follow the agreed naming.
+       15. Every published event name is past tense.
+       16. A discovery guard: the rule set found at least one module.
+           Without this, a rename can make the whole suite silently pass
+           by testing nothing.
+
+    Rule 16 is not a joke. A structural suite that quietly matches zero
+    types is worse than no suite, because it produces a green build.
+
+
+6.4  CONTRACT TESTS - THE PROMISES
+
+    Structure tests protect the inside. Contract tests protect what you
+    promised the outside.
+
+    HTTP CONTRACT
+        - The generated OpenAPI document is committed and diffed in CI. A
+          diff that removes or renames anything fails and needs an
+          explicit decision.
+        - One test per error path asserting the problem `type` URI, so
+          rewording a message can never break a client.
+        - Tests asserting the pagination shape, the money shape and the
+          timestamp format, since those are the shapes every client
+          hard-codes against.
+
+    EVENT CONTRACT
+        - Every published event has a serialisation test with a stored
+          sample payload. Changing the shape breaks it deliberately.
+        - Every subscriber has a test that it can consume the current
+          payload, and that consuming the same payload twice produces the
+          same state as consuming it once. Idempotency is a promise, so
+          it needs a test.
+        - Adding a field is additive and must not break existing
+          subscribers - assert that too.
+
+    MODULE CONTRACT
+        - Every published interface has a test exercising it directly,
+          not through HTTP. That is the path other modules use, and it is
+          the path that survives extraction.
+
+
+6.5  TEST DATA, FAKES, AND DETERMINISM
+
+    DATA
+        Build test data with small builders that have sensible defaults
+        and let a test override only the field it cares about. A test
+        should read as "given a thing that is expired" not as twelve
+        lines of field assignment.
+        Avoid large shared seed fixtures. They create hidden dependencies
+        between tests, and they make failures require archaeology. Each
+        test creates what it needs.
+
+    WHAT TO FAKE
+        Fake: external providers, outbound HTTP, mail and messaging
+        senders, file storage, and anything that costs money or is
+        someone else's uptime. This is exactly why Law 4 puts them behind
+        ports - the fake is just another adapter.
+        Do not fake: the database, the event bus, the transaction, or the
+        module you are testing. Faking those means testing your
+        assumptions instead of the system.
+
+    DETERMINISM
+        Time, identifiers and randomness come from injectable
+        abstractions, always. A test that fails at midnight, or once every
+        thirty runs, costs more trust than the feature was worth.
+        No sleeps. Wait for a condition with a timeout, or make the
+        asynchronous step explicitly drainable in tests.
+
+    PROVIDER CONTRACT TESTS
+        For each external adapter, keep a small set of tests that run
+        against the provider's sandbox on a schedule rather than on every
+        commit. Fakes drift from reality, and you want to find out on a
+        Tuesday morning, not during a launch.
+
+
+6.6  WHAT RUNS WHEN
+
+    ┌──────────────────────┬──────────────────────────────────────────┐
+    │ On save / watch      │ L1 + L2 of the module you are editing    │
+    │ On commit (pre-push) │ L1 + L2 + L5. Seconds.                   │
+    │ On pull request      │ Everything. L3 in parallel per module.   │
+    │                      │ OpenAPI diff. Migration applied to a     │
+    │                      │ fresh database and to a copy of a        │
+    │                      │ realistic one.                           │
+    │ Nightly              │ Provider sandbox tests. Load test on the │
+    │                      │ few endpoints that matter. Rebuild of    │
+    │                      │ every read model from events.            │
+    └──────────────────────┴──────────────────────────────────────────┘
+
+    THE MERGE GATE
+        A change merges when: the full suite is green, the architecture
+        suite is green, the OpenAPI diff contains no unapproved breaking
+        change, migrations applied cleanly forwards, and the new
+        behaviour has a test at the level that proves it.
+
+    COVERAGE
+        No percentage target. A number that must go up produces tests
+        written to move the number. Instead: every bug fixed gets the
+        test that would have caught it, every published contract has a
+        test, every domain rule has a test, and any code path handling
+        money or permissions is tested explicitly. Use coverage as a map
+        to find untested risk, not as a score.
+
+    ONE MORE THING THAT IS A TEST EVEN THOUGH IT IS NOT CALLED ONE
+        Rehearse every migration against a restored copy of realistic
+        data, in CI, before it reaches production. Most painful outages
+        in a system like this come from a migration that was fine on an
+        empty table and took a lock on a large one.
+
+
+===============================================================================
+PART 7 - GROWTH PATH
+===============================================================================
+
+7.1  SCALING STAGES
+
+    You do not need to design for the last stage now. You need to make
+    sure nothing in the first stage prevents the next one.
+
+    STAGE 1  One application instance, one database.
+             Everything in this document, nothing more.
+
+    STAGE 2  Several identical instances behind a load balancer.
+             Requires: no state in process memory, background jobs safe
+             to run in multiple instances (leases or a single scheduler),
+             cache moved out of process.
+
+    STAGE 3  A read replica. Heavy read paths and reporting point at it.
+             Requires: read and write paths already distinguishable -
+             which they are, if queries live in separate handlers from
+             commands.
+
+    STAGE 4  Out-of-process cache and a real message broker replacing the
+             in-process bus. Publishers and subscribers do not change,
+             because they already talk to an abstraction.
+
+    STAGE 5  Extract one module into its own service, and only the ones
+             that need it. The rest stay where they are, possibly
+             forever. A modular monolith with two extracted services is
+             a perfectly respectable end state, not a transitional
+             embarrassment.
+
+
+7.2  WHEN TO EXTRACT, AND WHEN NOT TO
+
+    Good reasons - each is about a resource conflict that cannot be
+    resolved inside one process:
+        - one module's load profile is starving the rest, and vertical
+          scaling is no longer the cheap answer
+        - one module needs a fundamentally different runtime, language or
+          hardware
+        - one module has a stricter compliance or isolation requirement
+        - separate teams need genuinely independent release cadence, and
+          the shared deployment has become the bottleneck
+
+    Bad reasons - each costs a lot and solves nothing:
+        - the codebase feels large
+        - microservices are the modern way
+        - a new hire prefers them
+        - "we might need it later" - you will need it later, and the
+          six properties in Part 2.4 are how you are ready
+
+
+7.3  THE EXTRACTION PROCEDURE
+
+    Because of Part 2.4, this is a sequence of small reversible steps
+    rather than a rewrite. One module at a time, strangler-fig style:
+
+        1. Confirm the six extraction-ready properties hold. Fix what
+           does not, first, while everything is still in one process.
+        2. Move its schema to its own database. Cross-boundary reads were
+           already contract calls, so nothing in module code changes.
+           Reporting views break here - that is the point of keeping them
+           in one place.
+        3. Replace the in-process contract implementation with a client
+           that speaks over the network. Callers do not change; they
+           depend on the interface.
+        4. Replace the in-process bus with the broker for that module's
+           events, keeping the outbox on the publishing side.
+        5. Deploy it separately. Add the operational pieces the network
+           now demands: timeouts, retries with backoff, circuit breaker,
+           tracing across the hop.
+        6. Handle the cases that were relying on a shared transaction -
+           there should be at most the two or three named exceptions from
+           Part 3.7, and each already has a documented replacement.
+
+    A rough calibration: with the rules followed, this is a small number
+    of focused weeks for one module. Without them, it is a rewrite that
+    takes quarters and is usually abandoned halfway.
+
+
+7.4  WHAT BREAKS FIRST IF THE RULES ARE IGNORED
+
+    So the cost of each shortcut is written down before someone is
+    tempted at 2am:
+
+        Skipped schema separation ──► cross-module joins appear within
+            weeks; extraction becomes a rewrite.
+        Skipped per-schema roles ──► the boundary is a suggestion; it
+            erodes invisibly.
+        Two writers on a table ──► corruption that only reproduces under
+            concurrency.
+        A foreign key across schemas ──► deployments become ordered
+            choreography; one module's maintenance is another's outage.
+        Contracts leaking entities ──► every internal change becomes a
+            breaking change for someone else.
+        No architecture tests ──► every rule here degrades to a code
+            review preference, and code review is where rules go to die.
+        No idempotent handlers ──► duplicate side effects that are
+            impossible to reproduce and expensive when they involve
+            money.
+        Rename-in-place migrations ──► deploys require downtime, and
+            rollback stops being possible.
+
+
+===============================================================================
+PART 8 - REFERENCE
+===============================================================================
+
+8.1  THE PATTERN NAMES
+
+    So you can search for more depth on any piece of this.
+
+    ┌─────────────────────────┬───────────────────────────────────────┐
+    │ What we called it       │ Its name in the literature            │
+    ├─────────────────────────┼───────────────────────────────────────┤
+    │ The overall shape       │ Modular Monolith / Modulith           │
+    │ Module = a capability   │ Bounded Context (DDD)                 │
+    │ Layer directions        │ Clean Architecture, Hexagonal         │
+    │                         │ Architecture, Ports and Adapters,     │
+    │                         │ Dependency Inversion                  │
+    │ Use-case folders        │ Vertical Slice Architecture           │
+    │ Read vs write split     │ CQRS                                  │
+    │ Read model table        │ Projection / Materialised View        │
+    │ Events between modules  │ Event-Driven Architecture,            │
+    │                         │ Publish-Subscribe, Integration Events │
+    │ Events inside a module   │ Domain Events                        │
+    │ Reliable publishing     │ Transactional Outbox                  │
+    │ Duplicate-safe handling │ Idempotent Consumer, Inbox Pattern    │
+    │ One writer per table    │ Single Writer Principle,              │
+    │                         │ Database-per-Service (schema variant) │
+    │ Copying a value in      │ Snapshot, Denormalisation,            │
+    │                         │ Anti-Corruption Layer                 │
+    │ Additive-then-remove    │ Expand and Contract, Parallel Change  │
+    │ Extracting later        │ Strangler Fig Pattern                 │
+    │ Multi-step consistency  │ Saga, Process Manager                 │
+    │ Structural tests        │ Architecture Fitness Functions        │
+    │ Error format            │ RFC 9457 Problem Details              │
+    └─────────────────────────┴───────────────────────────────────────┘
+
+
+8.2  GLOSSARY
+
+    Module        One capability, owning its code, its routes, its tables
+                  and its migrations. The unit of growth.
+    Contract      A module's published surface: interfaces, data shapes,
+                  events. The only thing others may depend on.
+    Port          An interface a module declares for something it needs
+                  from outside itself.
+    Adapter       An implementation of a port, holding the vendor detail.
+    Schema        A named namespace inside one database, with its own
+                  permissions. One per module.
+    Event         An immutable statement that something happened, in the
+                  past tense, with no knowledge of who reacts.
+    Outbox        A table events are written to inside the business
+                  transaction, and delivered from afterwards.
+    Read model    A flat table in your schema, maintained from another
+                  module's events, shaped for a specific screen.
+    Snapshot      A value copied at a moment in time and never updated,
+                  because history must not change.
+    Shared kernel Tiny stable vocabulary shared by all modules. Guarded.
+    Platform      Technical machinery with no domain knowledge.
+    Composition   The one place that knows every module exists and wires
+    root          them together. Lives in the host.
+
+
+8.3  THE RULES CARD
+
+    Print this. It is the whole document in twenty lines.
+
+     1. One deployable, several modules, one database, one schema each.
+     2. Every table has exactly one owning module.
+     3. Only the owner writes its tables or migrates its schema.
+     4. Modules depend only on other modules' published contracts.
+     5. Dependencies point one way. No cycles, ever.
+     6. Inside a schema: foreign keys, constraints, joins - use them all.
+     7. Across schemas: store the id, no foreign key, index the column.
+     8. Need a value as it was? Copy it in and never update the copy.
+     9. Need an answer now? Contract call. Announcing a fact? Event.
+    10. Events are past tense, and every handler is idempotent.
+    11. Cross-schema SQL exists in exactly one place: reporting views.
+    12. One transaction, one module. Exceptions are named and tested.
+    13. Everything outside the process sits behind a port.
+    14. Every change to a published thing is additive first.
+    15. Nothing is renamed in place. Expand, migrate, then contract.
+    16. Money is integer minor units plus a currency. Time is UTC.
+    17. One error shape, one problem type registry, for the whole API.
+    18. Confidence comes from module integration tests, not from mocks.
+    19. Structural rules are tests. Rules that are not tested are not
+        rules.
+    20. Extract a module only when a resource conflict demands it.
+
+
+8.4  DECISIONS STILL OPEN
+
+    None of these change anything above. Record each one in
+    docs/decisions/ when it is made, in a few lines: the choice, the
+    alternatives, and why.
+
+        - Language and framework for the host and modules
+        - Data access approach: ORM, query builder, or plain SQL
+        - Migration tool, and whether migrations are code or SQL files
+        - In-process mediator/bus library, or a hand-rolled dispatcher
+        - Multi-tenant or single-tenant, and if multi, the isolation
+          level (column, schema, or database per tenant)
+        - Identity: build it or use a provider
+        - Hosting shape: single container, orchestrated, or serverless
+        - Log, metric and trace destination
+        - Whether the first client is server-rendered or an API consumer
+        - Folder layout: confirm Layout B from Part 4.2
+
+    Then, and only then, the separate conversation: which modules exist,
+    what each one is responsible for, and in what order they get built.
+
+===============================================================================
+                        End of system design blueprint.
+             Companion document: change-guide.txt - how to change
+                     any of this safely, step by step.
+===============================================================================
