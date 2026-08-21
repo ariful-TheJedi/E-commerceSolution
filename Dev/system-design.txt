@@ -1083,8 +1083,16 @@ PART 4 - FOLDER STRUCTURE
 
 4.5  NAME MAPPING BY STACK
 
-    The stack is not decided yet, and the structure does not depend on it.
-    Only the word for "build unit" changes:
+    The structure does not depend on the stack. Only the word for "build
+    unit" changes. Laravel is the chosen stack - see 8.4 - so that row is
+    the operative one, and Dev/laravel-guardrails.txt Part 3 has the tree
+    in Laravel's own terms. The rest of the table stays for context.
+
+    ┌──────────────┬──────────────────┬───────────────────────────────┐
+    │ Laravel      │ Composer path    │ package deps + Deptrac +      │
+    │ (CHOSEN)     │ package          │ Pest arch tests               │
+    └──────────────┴──────────────────┴───────────────────────────────┘
+
 
     ┌──────────────┬──────────────────┬───────────────────────────────┐
     │ Stack        │ Build unit       │ Boundary enforcement          │
@@ -1867,17 +1875,24 @@ PART 8 - REFERENCE
     docs/decisions/ when it is made, in a few lines: the choice, the
     alternatives, and why.
 
-        - Language and framework for the host and modules
-        - Data access approach: ORM, query builder, or plain SQL
-        - Migration tool, and whether migrations are code or SQL files
+    DECIDED
+        - Language and framework: Laravel (PHP) for the API, React for the
+          UI as a separate client. See docs/decisions/0001-stack.md, and
+          Dev/laravel-guardrails.txt for how the rules above are achieved
+          in Laravel and which of its idioms are restricted as a result.
+        - Data access: Eloquent, confined to the infrastructure layer
+          behind repositories. Follows from the above.
+        - Migrations: Laravel migrations, registered per module.
+        - Folder layout: Layout B from Part 4.2, one Composer path package
+          per module plus a separate contracts package.
+
+    STILL OPEN
         - In-process mediator/bus library, or a hand-rolled dispatcher
         - Multi-tenant or single-tenant, and if multi, the isolation
           level (column, schema, or database per tenant)
         - Identity: build it or use a provider
         - Hosting shape: single container, orchestrated, or serverless
         - Log, metric and trace destination
-        - Whether the first client is server-rendered or an API consumer
-        - Folder layout: confirm Layout B from Part 4.2
 
     Then, and only then, the separate conversation: which modules exist,
     what each one is responsible for, and in what order they get built.
