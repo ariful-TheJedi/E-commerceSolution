@@ -1,0 +1,546 @@
+===============================================================================
+                        A R C H I T E C T U R E   M A P
+===============================================================================
+The shape of the system. No real modules or features are named here - those
+are a later decision. Placeholders: Module A / schema alpha / table widget.
+
+Companions: folder-structure.txt, module-guideline.txt, tech-stack.txt.
+
+
+===============================================================================
+1 - THE MENTAL MAP     (this is the whole idea)
+===============================================================================
+
+One application you deploy as one unit.
+Inside it, several self-contained modules that do not know each other's
+internals.
+One database, in which each module owns a private schema.
+One HTTP entry point in front of all of it.
+
+A module is a VERTICAL SLICE of the whole system, not a layer of it. It
+owns its routes, its logic, its tables, and its migrations. If you deleted
+a module's folder and its schema, the rest would still compile and run,
+minus that capability.
+
+THE PICTURE - read it twice. Vertical lines are ownership. Horizontal
+lines are the only two ways modules may interact.
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                       HOST  (one deployable)                     │
+    │                                                                  │
+    │   HTTP in ─► routing · auth · logging · errors · rate limits     │
+    │                                                                  │
+    │   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐      │
+    │   │   MODULE A    │   │   MODULE B    │   │   MODULE C    │      │
+    │   │               │   │               │   │               │      │
+    │   │  api          │   │  api          │   │  api          │      │
+    │   │  application  │   │  application  │   │  application  │      │
+    │   │  domain       │   │  domain       │   │  domain       │      │
+    │   │  infra        │   │  infra        │   │  infra        │      │
+    │   │  ─────────    │   │  ─────────    │   │  ─────────    │      │
+    │   │  contracts ◄──┼───┼── may call ───┼───┼──► contracts  │      │
+    │   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘      │
+    │           │                   │                   │              │
+    │        ┌──▼───────────────────▼───────────────────▼──┐           │
+    │        │              EVENT BUS (in process)         │           │
+    │        └─────────────────────────────────────────────┘           │
+    │                                                                  │
+    │   PLATFORM (owned by nobody, used by everybody)                  │
+    │   ids · clock · money · result · errors · outbox · jobs          │
+    └──────────────────────┬───────────────────────────────────────────┘
+                           │
+            ┌──────────────▼───────────────────────────────────┐
+            │            ONE POSTGRESQL DATABASE               │
+            │                                                  │
+            │  schema alpha   schema beta   schema gamma       │
+            │  (Module A)     (Module B)    (Module C)         │
+            │                                                  │
+            │  schema platform            schema reporting     │
+            │  (outbox, jobs, audit)      (read-only views)    │
+            └──────────────────────────────────────────────────┘
+
+WHY THIS SHAPE
+
+    You want two things that usually fight: grow module by module without
+    hard coupling, and ship without running a distributed system.
+
+    This gives you the boundaries of microservices with the operations of
+    a single app. The walls are real - separate code trees, separate
+    schemas, separate database users, enforced by tests. But calls between
+    modules are still function calls. One deploy, one log stream, one
+    database to back up.
+
+    When a module needs to become its own service, you cut along the
+    boundary it already lives behind. Nothing is redesigned. The seam
+    is already there.
+
+HOW THE TWO FRONT ENDS SIT ON THIS
+
+                              ┌───────────────┐
+                              │    browser    │
+                              └───────┬───────┘
+                        ┌─────────────┴─────────────┐
+                 public, SEO matters          behind a login
+                        │                           │
+      ┌─────────────────▼────────┐   ┌──────────────▼───────────┐
+      │  STOREFRONT              │   │  ADMIN                   │
+      │  Blade + React islands   │   │  React SPA               │
+      └─────────────────┬────────┘   └──────────────┬───────────┘
+                        │ in-process                │ HTTP /api/v1
+                        │ contracts                 │
+                        └──────────► HOST (above) ◄─┘
+
+    frontend/ holds all UI. app/ is the thin host. modules/ are the
+    slices. Neither front end ever touches a table. Detail: section 8.
+
+
+===============================================================================
+2 - THE FIVE LAWS     (do not change. everything else follows)
+===============================================================================
+
+    1  ONE OWNER            every table has exactly one owning module.
+                            Only that module writes it or migrates it.
+
+    2  PUBLISHED SURFACE    a module may use another module's contract.
+                            Never its classes, its tables, or its HTTP
+                            routes.
+
+    3  ONE DIRECTION        if A depends on B, B never depends on A -
+                            not directly, not through a third module.
+                            Cycles are a build failure, not a comment.
+
+    4  OUTSIDE BEHIND A     payment, mail, storage, search, SMS: used
+       PORT                 through an interface the module defines.
+                            The adapter holds the vendor. The module
+                            never imports the vendor directly.
+
+    5  ADDITIVE FIRST       every change to something published - a
+                            column, a contract, an event, an endpoint -
+                            is additive first. Removal is a later,
+                            separate step. Nothing is renamed in place.
+
+Break one and the module stops being extractable. If a request seems to
+need that, raise it. It is information about the boundary.
+
+
+===============================================================================
+3 - WHY THIS OPTION, NOT THE OTHERS
+===============================================================================
+
+    ┌───┬────────────────────────┬────────┬──────────┬─────────────────┐
+    │ # │                        │ Deploys│ Database │ Daily cost      │
+    ├───┼────────────────────────┼────────┼──────────┼─────────────────┤
+    │ 1 │ Layered monolith       │ 1      │ 1 schema │ Cheap now,      │
+    │   │                        │        │          │ locked later    │
+    │ 2 │ Modular, shared schema │ 1      │ 1 schema │ Boundaries rot  │
+    │ 3 │ Modular, schema/module │ 1      │ N schema │ Boundaries hold │
+    │ 4 │ A few coarse services  │ 2-4    │ 1 each   │ Next step       │
+    │ 5 │ Fine microservices     │ 8+     │ 1 each   │ Needs a         │
+    │   │                        │        │          │ platform team   │
+    └───┴────────────────────────┴────────┴──────────┴─────────────────┘
+
+    ► FOLLOW OPTION 3.
+
+    1  rejected  layers are technical, not functional. Every feature
+                 spreads across all of them. No seam to cut later.
+    2  rejected  code boundaries with no data boundary do not survive.
+                 The first deadline produces a join. Six months later
+                 the modules are welded through the database.
+    4  later     the natural next step. Paying for the network now is
+                 a tax you do not yet have the traffic to justify.
+    5  rejected  option 4, multiplied, plus a platform team. Solves
+                 an organisational problem a small team does not have.
+
+EXTRACTION-READY - a module can become a service if all six are true:
+
+    1. It owns its data.          nobody else writes its tables
+    2. It shares no schema.       its tables live only in its schema
+    3. No cross-schema FK.        nothing outside points in with a
+                                  database constraint
+    4. Called through a contract. callers depend on an interface and
+                                  simple data shapes, never internals
+    5. Side effects are events.   others react; they are not called
+    6. Own migrations.            its schema changes independently
+
+If those hold, extraction is mechanical: own database, swap the
+contract implementation for a client, swap the bus for a broker,
+deploy. No domain rewrite.
+
+
+===============================================================================
+4 - THE DATABASE
+===============================================================================
+
+A schema is a named folder inside one database. Not a separate server.
+`alpha.widget` and `beta.widget` are different tables. Permissions are
+per schema, which is what turns the boundary into something the database
+enforces. Joins across schemas are physically possible - one database -
+and forbidden in module code. Transactions still work across schemas
+today; you keep that until you extract.
+
+    ┌──────────────────── ONE POSTGRESQL DATABASE ─────────────────────┐
+    │                                                                  │
+    │   schema alpha         schema beta          schema gamma         │
+    │   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     │
+    │   │ Module A     │     │ Module B     │     │ Module C     │     │
+    │   │ role:        │     │ role:        │     │ role:        │     │
+    │   │ alpha_app    │     │ beta_app     │     │ gamma_app    │     │
+    │   └──────────────┘     └──────────────┘     └──────────────┘     │
+    │                                                                  │
+    │   platform     outbox, idempotency keys, jobs                    │
+    │   reporting    read-only cross-schema views. NOTHING ELSE.       │
+    │   public       stays empty. Unowned tables are where coupling    │
+    │                breeds.                                           │
+    └──────────────────────────────────────────────────────────────────┘
+
+Two roles per schema:
+
+    <name>_owner    runs migrations. Can change structure.
+    <name>_app      reads and writes rows. Cannot change structure.
+                    Has no grant on any other schema.
+
+        -- connected as alpha_app
+        SELECT * FROM beta.subscription;
+        ERROR:  permission denied for schema beta
+
+That error is the architecture defending itself.
+
+INSIDE ONE SCHEMA     foreign keys, constraints, cascades, joins - use
+                      them all. "No foreign keys" is a misreading.
+ACROSS SCHEMAS        three cases, decided by what you need:
+
+    ┌───────────────────────┬──────────────────────────────────────────┐
+    │ You need              │ You do                                   │
+    ├───────────────────────┼──────────────────────────────────────────┤
+    │ to know WHICH thing   │ store the bare id. No FK. Index it.      │
+    │                       │ Comment why there is no constraint.      │
+    │ to know something NOW │ ask the owner through its contract.      │
+    │                       │ Never read its tables.                   │
+    │ to remember HOW IT    │ copy the value onto your row at the      │
+    │ WAS                   │ time, and never update the copy.         │
+    └───────────────────────┴──────────────────────────────────────────┘
+
+The third case is the one that matters in commerce. An order line keeps
+the product name and the price as they were, so a change next month
+cannot rewrite last month's receipts.
+
+    ids          UUID, time-ordered (UUIDv7)
+    money        integer minor units + currency code. Never a float.
+    time         TIMESTAMPTZ, UTC
+    writes       one owner per table
+    migrations   live in the owning module, touch one schema
+    changes      additive first. Expand-contract for everything else.
+    SQL across   legal in exactly one place: reporting views
+    schemas
+    transaction  one module, one schema. Named, tested exceptions only.
+
+
+===============================================================================
+5 - INSIDE A MODULE
+===============================================================================
+
+Same shape in every module, so anyone can open any module and know
+where to look.
+
+    ┌─────────────────────────────────────────────────────────┐
+    │  API            HTTP routes. Reads the request, hands   │
+    │                 it to application, formats the reply.   │
+    │                 JSON API only. No rules. Never Blade.   │
+    ├─────────────────────────────────────────────────────────┤
+    │  APPLICATION    One handler per use case. Orders the    │
+    │                 steps: validate, load, call domain,     │
+    │                 save, publish. Declares the ports.      │
+    ├─────────────────────────────────────────────────────────┤
+    │  DOMAIN         The rules and the vocabulary. Entities, │
+    │                 value objects, invariants. PURE. Knows  │
+    │                 nothing about HTTP, the database, or    │
+    │                 any library.                            │
+    ├─────────────────────────────────────────────────────────┤
+    │  INFRASTRUCTURE Implementations of the ports.           │
+    │                 Repositories, provider clients, table   │
+    │                 mappings. Eloquent lives HERE only.     │
+    ├─────────────────────────────────────────────────────────┤
+    │  CONTRACTS      The published surface. Interfaces,      │
+    │  (public)       DTOs, events. Lives INSIDE the module   │
+    │                 (folder-structure.txt). Nothing else    │
+    │                 escapes.                                │
+    └─────────────────────────────────────────────────────────┘
+
+    api ──► application ──► domain
+                │
+                └──► ports (interfaces it declares)
+                          ▲
+                     infrastructure implements them
+
+    Domain depends on nothing. Application depends on domain and on
+    interfaces it owns. Infrastructure depends inward. Nothing points
+    from domain outward. That is why the domain is testable with no
+    database.
+
+    Group files BY USE CASE, not by type. One folder CreateWidget/
+    holding command, handler, result - not folders called Commands/
+    and Handlers/. Deleting a feature should be deleting a folder.
+
+    A use case that is just "write this row" will have an almost empty
+    domain. That is correct. Do not invent ceremony. Never skip the
+    dependency direction or the contracts boundary.
+
+THREE KINDS OF CODE
+
+    module      one capability. Free to change if its contract holds.
+    shared      tiny: Money, Ids, Clock, Result. No business rules.
+                Growth here welds every module together. Treat it as
+                a warning.
+    platform    machinery: bus, outbox worker, problem details.
+                Modules use it. It knows nothing about them.
+    host        the only place that knows every module exists. It
+                registers them and mounts their routes.
+
+
+===============================================================================
+6 - BETWEEN MODULES
+===============================================================================
+
+        Do I need the answer before I can finish this request?
+
+    YES ──► SYNCHRONOUS CONTRACT CALL
+            You call an interface the other module published. You get
+            data back. Questions: does this exist, what is the current
+            value, is this allowed.
+
+            Depend on the interface, not the implementation.
+            Exchange contract DTOs, never internal entities.
+            Read-only by preference. If A needs B to change state,
+            that is usually a smell - the work belongs in B, or it is
+            an event.
+            Batch-shaped. A "get one" call inside a loop is how you
+            get a hundred queries per page.
+            Never call back. If B is called by A, B must not call A.
+
+    NO  ──► ASYNCHRONOUS EVENT
+            You announce that something happened, in the past tense,
+            and you do not know or care who reacts. Consequences:
+            other modules updating themselves, notifications,
+            projections.
+
+            Past-tense names. Facts, not commands.
+            The publisher does not know its subscribers and never
+            depends on their outcome.
+            Identifiers plus the few values a subscriber needs. Not
+            whole object graphs.
+            Handlers must be idempotent - every event can arrive twice.
+            A failing handler must not fail the publisher's request.
+
+    TWO KINDS OF EVENT, DO NOT MIX THEM
+        Internal (domain) events stay inside one module.
+        Published (integration) events cross module lines, live in
+        Contracts/, and are versioned like an API.
+
+    THE OUTBOX
+        Write the event as a row in the same transaction as the
+        change. A worker delivers it afterwards. If the process dies
+        between commit and delivery, the row is still there.
+
+        One platform worker for the whole app. Not one per module.
+        The worker delivers. It never decides what a module should do.
+
+    ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+    │  save   │────►│ outbox  │────►│ worker  │────►│   bus   │
+    │  change │     │  row    │     │ delivers│     │ B, C... │
+    └─────────┘     └─────────┘     └─────────┘     └─────────┘
+         └──── one transaction ────┘                 each handler:
+                                                     own transaction,
+                                                     idempotent
+
+FORBIDDEN
+
+    importing anything that is not the contract
+    reading or writing another module's tables
+    one module calling another module's HTTP
+    two modules writing the same table
+    a chain of synchronous calls three modules deep
+    shared mutable state between modules in memory
+
+
+===============================================================================
+7 - THE API
+===============================================================================
+Resource-oriented HTTP, JSON, contract-first. `/api/v1/`. Additive only
+inside a version. Module names never appear in URLs - `/api/v1/widgets`,
+never `/api/v1/alpha/widgets`. The API is one coherent surface. Module
+boundaries are invisible from outside.
+
+    ┌────────────────┬──────────────────┬─────────────────────────────┐
+    │ Surface        │ Prefix           │ Who                         │
+    ├────────────────┼──────────────────┼─────────────────────────────┤
+    │ Public         │ /api/v1/         │ storefront, untrusted       │
+    │ Management     │ /api/admin/v1/   │ logged-in operators         │
+    │ Machine        │ /api/partner/v1/ │ other systems, keys         │
+    │ Inbound hooks  │ /hooks/<source>  │ providers calling you       │
+    │ Operational    │ /health /ready   │ infrastructure, not public  │
+    └────────────────┴──────────────────┴─────────────────────────────┘
+
+Routes are defined in the owning module. The host mounts them. One
+router. Removing a module is removing one folder, including its routes.
+
+WHO OWNS AN ENDPOINT THAT TOUCHES SEVERAL MODULES
+
+    ┌────────────────────────────────┬────────────────────────────────┐
+    │ The endpoint...                │ Owner                          │
+    ├────────────────────────────────┼────────────────────────────────┤
+    │ writes one module's data       │ that module                    │
+    │ reads one, enriches from       │ the module owning the main     │
+    │ another                        │ data; rest via a batch call    │
+    │ only composes for a screen     │ composition layer              │
+    │ writes several modules         │ nobody. Smell. One decision,   │
+    │                                │ consequences as events.        │
+    └────────────────────────────────┴────────────────────────────────┘
+
+Composition layer - three rules:
+
+    1. May only call published contracts. Never internals, never the DB.
+    2. Owns no tables.
+    3. Contains no business rules - only shaping and assembling.
+
+Storefront controllers live here, under frontend/. A composition layer
+that starts making decisions has become a god module.
+
+    GET     200 / 404          POST    201 + Location, or 200 / 202
+    PUT     200 / 204          PATCH   200 / 204
+    DELETE  204
+
+    400 unread request   401 / 403   404  (also "exists but not yours")
+    409 state conflict   412 ETag    422  parsed but semantically wrong
+    429 + Retry-After    500 never leaks internals
+
+    Never 200 with an error in the body.
+    Lists that grow: cursor pagination, never offset.
+    Mutating POST: Idempotency-Key. Required on money and commitments.
+    Errors: RFC 9457 problem details. Clients switch on `type`, never
+    on the message wording.
+    Money in JSON: `{ "minor": 2500, "currency": "USD" }`. Never a float.
+    Coarse auth at the edge. Fine auth inside the module - the contract
+    path has no middleware.
+
+
+===============================================================================
+8 - THE FRONTEND
+===============================================================================
+All UI in one top-level `frontend/`. Not in resources/views, not in a
+module. The map is this section.
+
+    frontend/
+    ├── storefront/     Blade + islands     crawlers see this
+    └── admin/          React SPA           behind a login
+
+    Blade controller ──── in-process contract ────► modules
+    React (island/SPA) ── HTTP /api/v1 ────────────► modules
+
+    Blade must not call its own HTTP API - pointless round trip.
+    React never holds a rule, a credential, or a table name.
+    One composition call per screen, not eight from the browser.
+
+    ┌─ storefront page ──────────────────────────────┐
+    │  title, price, links, meta     ◄── server HTML │
+    │  ┌─ React island ────────────┐                 │
+    │  │ variant picker, add cart  │ ◄── JS only here│
+    │  └───────────────────────────┘                 │
+    └────────────────────────────────────────────────┘
+
+
+===============================================================================
+9 - TWO REQUESTS, END TO END
+===============================================================================
+
+A  VISITOR OPENS A PAGE
+
+    browser ──► storefront controller   (composition layer)
+                    │  Module A contract: the thing
+                    │  Module B contract: availability
+                    ▼
+                one Blade view, full HTML
+    browser ◄───────┘  content and meta in the first response
+                       island JS loads after
+
+B  AN ACTION THAT CHANGES STATE
+
+    React ──► POST /api/v1/.../cancel     Idempotency-Key
+                    │
+              host: auth, idempotency, correlation id
+                    │
+              module api → application → domain decides
+                    │
+              ┌─ one transaction, this schema ─┐
+              │  save the change               │
+              │  put the event in the outbox   │
+              └────────────────────────────────┘
+    React ◄──── 200
+                    ┆  after the response, separately:
+                    ▼
+              worker delivers → other modules react
+              each own transaction, each safe twice
+
+
+===============================================================================
+10 - TESTING AND GROWTH
+===============================================================================
+
+    ┌────┬────────────────────┬──────────────────────────────┐
+    │ L  │ What               │ Most of your confidence      │
+    ├────┼────────────────────┼──────────────────────────────┤
+    │ 1  │ Domain unit        │ the rules, no database       │
+    │ 3  │ Module integration │ THE DEFAULT. Real DB, real   │
+    │    │                    │ bus. Assert response, rows,  │
+    │    │                    │ events.                      │
+    │ 4  │ System flow        │ two or three cross-module    │
+    │    │                    │ paths, including outbox      │
+    │ 5  │ Guards             │ Deptrac, PHPStan, Pest arch. │
+    │    │                    │ Untested rules are not rules.│
+    └────┴────────────────────┴──────────────────────────────┘
+
+    Fake what is outside the process. Never fake the database, the
+    bus, or the module under test. How-to: dev-workflow.txt.
+
+GROWTH - pay for a stage when you are in it, not before.
+
+    1  one instance, one database          ◄── you are here
+    2  several instances behind a balancer
+    3  a read replica
+    4  out-of-process cache + a real broker
+    5  extract ONE module, only if a resource conflict demands it
+
+    Extract when load, runtime, compliance or release cadence actually
+    conflict. Not because the codebase feels large. The six properties
+    in section 3 are how you are ready.
+
+
+===============================================================================
+11 - THE CARD
+===============================================================================
+
+     1. One deployable, several modules, one database, one schema each.
+     2. Every table has exactly one owning module.
+     3. Modules depend only on published contracts.
+     4. Dependencies point one way. No cycles.
+     5. Inside a schema: FKs and joins. Across: bare id, no FK.
+     6. Need it as it was? Copy it. Need it now? Contract call.
+     7. Announcing a fact? Event, past tense, idempotent handlers.
+     8. Cross-schema SQL only in reporting views.
+     9. One transaction, one module.
+    10. Outside the process sits behind a port.
+    11. Published things change by addition. Nothing renamed in place.
+    12. Money is integer + currency. Time is UTC.
+    13. One error shape. Cursor pagination. Idempotency-Key on writes.
+    14. Confidence from module integration tests, not mocks.
+    15. Structural rules are tests. Untested rules are not rules.
+
+
+===============================================================================
+12 - WHERE TO READ MORE
+===============================================================================
+
+    folder-structure.txt        where files go, including frontend/
+    module-guideline.txt        how to build or change a module
+    dev-workflow.txt            the build loop, tests, AI prompts
+    tech-stack.txt              versions, and what is not decided yet
+===============================================================================

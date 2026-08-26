@@ -1,0 +1,354 @@
+===============================================================================
+                        M O D U L E   G U I D E L I N E
+===============================================================================
+Companion to folder-structure.txt. That file says where things go. This one
+says how to build a module, how to change one afterwards, and when either is
+done. Sections 1-6 are a new module; 7-10 are every change after that.
+
+Placeholder names: module alpha, table widget, use case CreateWidget.
+
+
+-------------------------------------------------------------------------------
+1 - IS IT ACTUALLY A MODULE
+-------------------------------------------------------------------------------
+Three questions. All three must be yes before you create a folder.
+
+    Does it own data that no existing module owns?
+        No  → it is a feature of the module that owns that data. Stop.
+
+    Can you name it as one capability, one noun phrase, no "and"?
+        No  → it is two modules, or it is not thought through yet.
+
+    Could it plausibly be switched off on its own, leaving the rest of the
+    system working in a degraded but sane way?
+        No  → it is part of something else.
+
+A new module is the expensive answer: a schema, a role, grants, a
+connection, a provider, a Deptrac layer, a test suite. Adding a use case to
+an existing module costs one folder. Prefer the folder.
+
+
+-------------------------------------------------------------------------------
+2 - THE ORDER TO BUILD IN
+-------------------------------------------------------------------------------
+Inside out. Every step depends only on the steps above it, so nothing is
+ever blocked on code that does not exist yet, and each step is testable
+before you start the next.
+
+    1  Domain          the rule, as pure PHP. No Illuminate, no facades,
+                       no Eloquent, no Carbon, no now(). Unit-testable
+                       with no database and no container.
+
+    2  Contracts       the interface other modules will call, the readonly
+                       DTOs it returns, the events this module publishes.
+                       Write this before the implementation - it is the
+                       promise, and it is the hardest thing to change
+                       later.
+
+    3  Application     one folder per use case: Command, Handler, Result.
+                       The handler orchestrates and decides nothing itself.
+                       Declare every outside need as an interface in
+                       Ports/.
+
+    4  Infrastructure  Eloquent model, migration, repository mapping model
+                       to domain object, adapters implementing the ports,
+                       and the class implementing the contract.
+
+    5  Api             route, thin controller, FormRequest, resource.
+
+    6  Register        one provider line in the host, the connection in
+                       config/database.php, the schema and role in
+                       database/bootstrap, the Deptrac layers.
+
+Step 1 with no step 4 is a working, tested rule with nowhere to store
+things. That is a good place to be after an hour. The reverse - a migration
+and a model with no rule - is where modules go wrong.
+
+
+-------------------------------------------------------------------------------
+3 - WHAT GOES WHERE
+-------------------------------------------------------------------------------
+
+    ┌──────────────────────────────┬────────────────────────────────────┐
+    │ What you are writing         │ Where it goes                      │
+    ├──────────────────────────────┼────────────────────────────────────┤
+    │ A business rule, invariant   │ Domain/                            │
+    │ A calculation or policy      │ Domain/                            │
+    │ Orchestration of one use     │ Application/<UseCase>/             │
+    │ case                         │                                    │
+    │ Input shape validation       │ Application/<UseCase>/ and Api/    │
+    │                              │ Requests/ - both, see 5            │
+    │ An interface for anything    │ Application/Ports/                 │
+    │ outside this module          │                                    │
+    │ A reaction to another        │ Application/Listeners/             │
+    │ module's event               │                                    │
+    │ Eloquent model, query, repo  │ Infrastructure/Persistence/        │
+    │ Migration                    │ Infrastructure/Persistence/        │
+    │                              │ Migrations/                        │
+    │ An external provider call    │ Infrastructure/Adapters/           │
+    │ Route, controller, resource  │ Api/                               │
+    │ Interface others may call    │ Contracts/                         │
+    │ Data shape crossing a        │ Contracts/Dto/                     │
+    │ module boundary              │                                    │
+    │ An event this module         │ Contracts/Events/                  │
+    │ announces                    │                                    │
+    │ Any page, view or screen     │ frontend/ - NEVER in a module      │
+    └──────────────────────────────┴────────────────────────────────────┘
+
+
+-------------------------------------------------------------------------------
+4 - NAMING
+-------------------------------------------------------------------------------
+
+    Folder / namespace   modules/alpha/  →  Modules\Alpha\
+    Schema and tables    schema alpha, table widget - singular
+    Use case folder      verb + noun: CreateWidget/, CancelOrder/
+    Inside it            CreateWidgetCommand, CreateWidgetHandler,
+                         CreateWidgetResult
+    Contract             AlphaApi, implemented by AlphaApiImpl
+    Event                past tense, always: WidgetCreated, OrderCancelled
+    Port                 named for the NEED, not the vendor:
+                         PaymentGateway, Clock, Outbox
+    Adapter              named for the vendor, implements the port:
+                         StripePaymentGateway
+    Repository           interface WidgetRepository in Application/Ports/,
+                         class EloquentWidgetRepository in Infrastructure/
+
+The port and adapter naming is the one people get backwards. If the
+interface is called `StripeClient`, the module has hard-coded a vendor into
+its own vocabulary and law 4 is already broken.
+
+
+-------------------------------------------------------------------------------
+5 - THE RULES THAT DO NOT BEND
+-------------------------------------------------------------------------------
+
+    One owner            this module writes and migrates its own tables and
+                         nobody else's. No FK across schemas, ever.
+
+    Contracts only       to reach another module, call its Contracts. Never
+                         its classes, its tables, or its HTTP routes.
+
+    Inward only          Domain depends on nothing. Application depends on
+                         Domain. Infrastructure implements what Application
+                         declares. Api depends on Application. No cycles.
+
+    Eloquent is caged    models exist only under
+                         Infrastructure/Persistence/. A model never appears
+                         in a controller, a handler, a domain class, a DTO,
+                         an event, or a resource.
+
+    Validate twice       the FormRequest checks the shape at the HTTP edge.
+                         The rule itself lives in Domain, because the
+                         module is also reachable through its contract,
+                         where no FormRequest runs. A rule enforced only in
+                         a FormRequest is not enforced.
+
+    Events are facts     past tense, immutable, carrying an eventId. Write
+                         to the outbox in the same transaction as the
+                         change. Handlers are idempotent because delivery
+                         happens twice sometimes.
+
+    One transaction      one module, one schema, one transaction. Crossing
+                         that needs a written, tested exception.
+
+    Additive first       published things - a column, a contract method, an
+                         event field, an endpoint - change by addition.
+                         Nothing is renamed in place.
+
+    Lists that grow      cursorPaginate(), never paginate().
+
+
+-------------------------------------------------------------------------------
+6 - DEFINITION OF DONE
+-------------------------------------------------------------------------------
+Not done until every line is true.
+
+    [ ] Schema, role and grants created in database/bootstrap; the role has
+        no grant on any other schema.
+    [ ] Connection registered in config/database.php; the module uses only
+        that connection.
+    [ ] Provider registered in the host, one line. Nothing else in the host
+        names the module.
+    [ ] Deptrac layers added for all five folders separately - never a
+        collector on the module root.
+    [ ] Domain has zero framework imports. There is a test that asserts it.
+    [ ] Every outside dependency is an interface in Ports/ with an adapter,
+        and a timeout.
+    [ ] The contract is implemented, and covered by a test that calls it the
+        way another module would.
+    [ ] Every published event carries an eventId and is written via the
+        outbox.
+    [ ] Every listener is idempotent, with a test proving run-twice equals
+        run-once.
+    [ ] Growing lists use cursorPaginate().
+    [ ] Errors come out as problem details with a stable type URI.
+    [ ] One module integration test per use case, against the real
+        containerised database, asserting the HTTP response, the database
+        rows, and the events published.
+    [ ] Deptrac, PHPStan and the Pest architecture suite all pass.
+
+
+-------------------------------------------------------------------------------
+7 - ADDING A FEATURE TO AN EXISTING MODULE
+-------------------------------------------------------------------------------
+First, confirm it belongs here. It does if it reads and writes only this
+module's tables and expresses a rule about this module's data. If it has to
+write another module's table, it is not one feature - it is a decision for
+the owning module plus an event.
+
+Then the same inward order, smaller:
+
+    1  A NEW use-case folder in Application/. Not a new branch inside an
+       existing handler.
+    2  The rule in Domain - extend the entity or value object that owns it,
+       or add one.
+    3  A new port only if the feature needs something new from outside.
+    4  Infrastructure: a migration if there is new data, a repository
+       method if there is a new query.
+    5  Api: route, controller, request, resource.
+    6  Contracts: ONLY if another module needs this. A feature reached only
+       over HTTP never touches Contracts.
+
+THE TEST FOR "NEW USE CASE" VS "CHANGE THE OLD ONE"
+    If the new behaviour needs an `if` inside an existing handler that
+    changes what that use case means, it is a new use case. Flags and extra
+    parameters accumulated inside one handler are how a 40-line handler
+    becomes a 400-line one nobody will touch.
+
+    The check that matters: could you delete this feature by deleting one
+    folder? If not, it was not a vertical slice.
+
+
+-------------------------------------------------------------------------------
+8 - CHANGING SOMETHING ALREADY PUBLISHED
+-------------------------------------------------------------------------------
+Published means other code depends on it: a column in use, a contract
+method, an event, an endpoint, a DTO field. All of it changes by addition.
+
+    Add a field          Just add it. Optional. One deploy, no
+                         coordination.
+
+    Add a method         Add it to the contract. Never change an existing
+                         signature.
+
+    Change a method      Add a new method beside the old one, move callers
+                         over, delete the old one later as its own step.
+
+    Add an event field   Add it optional. Old handlers ignore what they do
+                         not read.
+
+    Change an event      A new event type. Never redefine an existing one -
+                         subscribers you have forgotten about are reading
+                         the old shape.
+
+    Endpoint change      Additive within /api/v1. A genuinely breaking
+                         change means /api/v2, not an edit.
+
+    Rename anything      No. Expand-contract, section 9.
+
+    Remove anything      A separate, later change, once nothing references
+                         it. Never in the same deploy as the replacement.
+
+WHY RENAMING IS THE ONE THAT BITES
+    A rename is atomic in the database and not atomic in your fleet. During
+    a rolling deploy, old code and new schema coexist for seconds or
+    minutes, and old code is broken for all of them.
+
+
+-------------------------------------------------------------------------------
+9 - DATABASE CHANGES INSIDE A MODULE
+-------------------------------------------------------------------------------
+The migration lives in the owning module and touches one schema - its own.
+
+    SAFE ON A LIVE TABLE
+        Add a nullable column, or one with a constant default.
+        Create an index CONCURRENTLY - always, on a table with data.
+        Add a CHECK, or an in-schema FK, as NOT VALID then VALIDATE.
+        Widen a varchar or drop a length cap.
+
+    NOT SAFE - USE EXPAND-CONTRACT
+        Rename a column or table.
+        Narrow or retype a column - full rewrite.
+        Add NOT NULL with no default - rewrites, and fails on existing rows.
+        Set NOT NULL directly - backfill, add a validated CHECK, then set it.
+        Create an index without CONCURRENTLY - blocks writes.
+        One big UPDATE to backfill - long transaction, bloat, lock
+        contention.
+
+    EXPAND-CONTRACT: SIX STEPS, SIX DEPLOYS
+        1  EXPAND       add the new thing beside the old. Nullable.
+                        Nothing reads it yet.
+        2  WRITE BOTH   write old and new on every write. Reads still use
+                        the old one.
+        3  BACKFILL     fill existing rows in batches, until old and new
+                        agree. Verify with a query that counts
+                        disagreements and expects zero.
+        4  READ NEW     switch reads over. Still writing both. This is the
+                        step you might roll back, and you can, instantly.
+        5  STOP OLD     remove the old write. Leave it days, not minutes.
+        6  CONTRACT     drop the old column, as its own deploy.
+
+        The system works fully after every one of those steps. That is the
+        whole point of six deploys instead of one.
+
+    THREE HABITS ON ANY MIGRATION TOUCHING REAL DATA
+        Set `lock_timeout` and `statement_timeout` in the migration runner,
+        not in each file. A migration that waits for a lock queues every
+        other query for that table behind itself.
+        Backfill in batches of a few thousand, committing each one.
+        Rehearse in CI against a restored copy of realistic data. Almost
+        every migration incident was instant on an empty table.
+
+
+-------------------------------------------------------------------------------
+10 - DONE CHECKLIST FOR A CHANGE
+-------------------------------------------------------------------------------
+
+    [ ] The change is additive, or it is on a known step of
+        expand-contract with the remaining steps written down.
+    [ ] Nothing was renamed in place.
+    [ ] The migration touches one schema, this module's own.
+    [ ] New columns are nullable or have a constant default; new indexes
+        were created concurrently.
+    [ ] If a contract, event or endpoint changed, it changed by addition,
+        and every existing caller still passes untouched.
+    [ ] The new feature is its own use-case folder, deletable on its own.
+    [ ] Any new rule went into Domain, not into a FormRequest.
+    [ ] There is an integration test for the new behaviour, and the
+        existing tests still pass WITHOUT being edited. Editing an old test
+        to make a new feature pass means you changed behaviour something
+        else depended on - stop and check who.
+    [ ] Deptrac, PHPStan and the architecture suite all pass.
+
+
+-------------------------------------------------------------------------------
+11 - THE MISTAKES THAT ACTUALLY HAPPEN
+-------------------------------------------------------------------------------
+
+    A model in a handler        Feels harmless, and it is the single most
+                                common way the boundary rots. Map to a
+                                domain object in the repository.
+
+    A relation to another       $widget->subscription is a cross-schema
+    module's table              join in one idiomatic line no reviewer
+                                notices. Store the id, resolve via the
+                                contract.
+
+    A rule in the FormRequest   It vanishes the moment another module calls
+                                the contract. Move it to Domain.
+
+    Route model binding         Binds by querying, outside the repository.
+                                Bind the id, load through the repository.
+
+    A contract call in a loop   N calls where one batch call belongs. Make
+                                the contract batch-shaped from the start.
+
+    A "shared" module           Two modules both needed something, so it
+                                went in the middle and now everything
+                                depends on it. Either duplicate the small
+                                thing, or it belongs to one owner who
+                                publishes it.
+
+    now() in a handler          An invisible dependency that makes time
+                                untestable. Inject Clock.

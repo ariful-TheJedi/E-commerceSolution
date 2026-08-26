@@ -1,0 +1,521 @@
+===============================================================================
+                    D E V E L O P M E N T   W O R K F L O W
+===============================================================================
+How this project is built WITH an AI assistant. Written for two readers:
+
+    YOU (the developer)     own requirements, approve the plan, review.
+    THE AGENT               writes the code, runs the tests, stops when
+                            something is missing instead of inventing it.
+
+Demo names: module alpha, table widget, use case CreateWidget.
+Companions: architecture-map.txt, folder-structure.txt,
+            module-guideline.txt.
+
+
+===============================================================================
+0 - WHO DOES WHAT
+===============================================================================
+
+    ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+    │     YOU      │     │    AGENT     │     │    TOOLS     │
+    │              │     │              │     │              │
+    │ requirements │     │ writes code  │     │ Deptrac      │
+    │ approve plan │     │ writes tests │     │ PHPStan      │
+    │ review diff  │     │ runs tests   │     │ Pest         │
+    │ say "next"   │     │ lists files  │     │ DB roles     │
+    │              │     │ FIRST, waits │     │              │
+    └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+           │                    │                    │
+           │  decide            │  produce           │  pass / fail
+           └──────────►  ◄──────┴────────────────────┘
+                         nothing ships unless all three agree
+
+    YOU never ask "build me a module". That prompt invents requirements,
+    picks textbook Laravel, and dumps a diff nobody can review.
+
+    THE AGENT never invents a requirement, never starts coding before a
+    plan is approved, never writes six use cases in one turn, never
+    loosens a failing test to get green.
+
+
+===============================================================================
+1 - THE PIPELINE
+===============================================================================
+One stage per prompt. You say "next" when the stage is right.
+
+    ┌─────────────┐
+    │ 1  REQUIRE  │  YOU write. Agent may ask. Agent never invents.
+    └──────┬──────┘
+           ▼
+    ┌─────────────┐
+    │ 2  PLAN     │  Agent proposes. YOU approve. NO FILES YET.
+    └──────┬──────┘
+           ▼
+    ┌─────────────┐
+    │ 3  SKELETON │  Agent builds empty module. Wall-test must pass.
+    └──────┬──────┘
+           ▼
+    ┌─────────────┐
+    │ 4  ONE SLICE│  Failing test, then build inward. Repeat per use case.
+    └──────┬──────┘     ▲
+           │            │  next use case
+           │            └── until the list is empty
+           ▼
+    ┌─────────────┐
+    │ 5  TESTS    │  From the checklist, not from the agent's taste.
+    └──────┬──────┘
+           ▼
+    ┌─────────────┐
+    │ 6  REVIEW   │  composer check. Then YOU read five files.
+    └──────┬──────┘
+           ▼
+         merge
+
+    A slice = one use case, end to end, including its test.
+    If a slice takes more than a day, it was two slices.
+
+
+===============================================================================
+2 - RULES THE AGENT FOLLOWS EVERY TURN
+===============================================================================
+
+    1  Read architecture-map.txt, folder-structure.txt,
+       module-guideline.txt. Do not restate them. Follow them.
+    2  List the files you will create or change, one line each, THEN WAIT.
+    3  If a requirement is missing or ambiguous: STOP AND ASK.
+       Do not choose.
+    4  One use case per turn. Never "add all six endpoints".
+    5  Verify against module-guideline.txt section 10 (or 6 if new
+       module). Report any item you cannot tick.
+    6  Summarise: files added, files changed, anything not asked for.
+    7  Do not refactor anything you were not asked to touch.
+
+    Laravel traps - name them, because tutorials do the opposite:
+
+        Eloquent stays in Infrastructure/Persistence
+        no facades in Domain or Application
+        no cross-schema query, FK, or Eloquent relation
+        cursorPaginate, never paginate
+        UI in frontend/, never inside a module
+        contracts are a FOLDER inside the module, not a second package
+
+
+===============================================================================
+3 - STAGE 1  REQUIREMENTS     (you write)
+===============================================================================
+
+    BAD                         GOOD
+    ┌─────────────────────┐     ┌──────────────────────────────────────┐
+    │ "manage stock"      │     │ Stock cannot go below zero.          │
+    │                     │     │ An attempt below zero is rejected.   │
+    │ not a test          │     │ = one test                           │
+    └─────────────────────┘     └──────────────────────────────────────┘
+
+Fill this. The agent does not fill gaps.
+
+    CAPABILITY          one sentence, no "and"
+    IT OWNS             data nobody else may write
+    IT DOES NOT OWN     things people will assume it owns  ← most
+                                                           mistakes die
+                                                           on this line
+    USE CASES           for each: name, actor, input, rules,
+                        result, refuses
+    FACTS IT ANNOUNCES  past tense
+    IT NEEDS FROM       what question, which module answers,
+    OTHERS              contract call or event
+    OUT OF SCOPE        explicit. This is where the agent STOPS.
+
+Then one card per use case:
+
+    ┌─ SLICE CARD ─────────────────────────────────────────────────────┐
+    │  SLICE       Create a widget                                     │
+    │  Given       a valid code and a price                            │
+    │  When        POST /api/v1/widgets                                │
+    │  Then        row in alpha.widget, status inactive, 201 + id      │
+    │  Owns        alpha.widget                                        │
+    │  Rule        code unique; price = integer minor units + currency │
+    │  Publishes   nothing yet                                         │
+    │  Refuses     duplicate code → 409                                │
+    └──────────────────────────────────────────────────────────────────┘
+
+    Every "refuses" line = one test. No card, no code.
+
+
+===============================================================================
+4 - STAGE 2  PLAN     (agent proposes, you approve, no files)
+===============================================================================
+
+YOU paste:
+
+    Read AGENTS.md, architecture-map.txt, folder-structure.txt and
+    module-guideline.txt.
+
+    Below is a requirement list. Produce a PLAN ONLY. Write no code
+    and create no files.
+
+    Give me:
+      1. Module name, one word. Responsibility in one sentence, no "and".
+      2. Tables it owns: columns, types, which values are copies from
+         another module.
+      3. Use cases, one line each, in the order you would build them.
+      4. Events it publishes, past tense.
+      5. What it needs from others: contract call, or event.
+      6. Dependency direction: does anything it depends on need to
+         depend back? If yes, which direction becomes an event.
+      7. Anything ambiguous, missing, or that belongs in a different
+         module.
+
+    Then: is this one module, per module-guideline.txt section 1,
+    or two?
+
+    Do not invent requirements. Missing things go under item 7.
+
+YOU read the answer in this order:
+
+    ┌─────────┐     ┌─────────┐     ┌─────────┐
+    │ item 7  │ ──► │ item 6  │ ──► │ tables  │
+    │ gaps    │     │ cycles  │     │ copies? │
+    └─────────┘     └─────────┘     └─────────┘
+    cheapest fix    cheap here,     every cross-module id is a
+    is here         rewrite later   bare column, no FK.
+                                    historical values are copies
+                                    that are never updated.
+
+When the plan is right, YOU paste:
+
+    The plan is approved with these changes: <...>.
+    Write a short module note (name, tables, events). Nothing else yet.
+
+
+===============================================================================
+5 - STAGE 3  SKELETON     (empty module that already has walls)
+===============================================================================
+
+    modules/alpha/                 config/database.php   one connection
+    ├── composer.json              app/Providers/        one line
+    ├── src/
+    │   ├── AlphaServiceProvider.php
+    │   ├── Contracts/             empty, public
+    │   ├── Api/
+    │   ├── Application/
+    │   ├── Domain/
+    │   └── Infrastructure/
+    └── tests/
+        ├── Unit/
+        └── Integration/
+
+    + database/bootstrap/          schema, owner role, app role, grants
+    + deptrac.yaml                 FIVE collectors, one per src/ folder
+                                   NEVER a collector on src/.*
+
+YOU paste:
+
+    Follow folder-structure.txt for module <name>.
+
+    Create ONLY the skeleton:
+      - bootstrap SQL: schema, owner role, app role, grants
+      - one Composer package, Contracts/ inside src/
+      - connection in config/database.php
+      - service provider, registered once
+      - Deptrac layers for each of the five src/ subfolders
+        (never a collector on modules/<name>/src/.*)
+      - empty tests/Unit and tests/Integration
+
+    No tables. No domain code. No endpoints.
+    List the files first, one line each, and wait.
+
+THEN, before any feature:
+
+    Add a test: a query against another module's schema must throw.
+    Run it. Show me it passes.
+
+    A wall you have not seen fail is not a wall.
+
+
+===============================================================================
+6 - STAGE 4  ONE SLICE     (repeat until the use-case list is empty)
+===============================================================================
+
+    BUILD INWARD - never the other way.
+
+    ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐
+    │ Domain   │──►│Contracts │──►│ Applic.  │──►│  Infra   │──►│ Api │
+    │          │   │          │   │          │   │          │   │     │
+    │ the rule │   │ only if  │   │ one      │   │ model,   │   │route│
+    │ pure PHP │   │ another  │   │ folder   │   │ repo,    │   │ctrl │
+    │ unit     │   │ module   │   │ per use  │   │ migrat.  │   │req  │
+    │ tested   │   │ needs it │   │ case     │   │ adapters │   │res  │
+    └──────────┘   └──────────┘   └──────────┘   └──────────┘   └─────┘
+         1              2              3              4             5
+
+    Domain with no Infra = a tested rule and nowhere to store it.
+    That is a good hour. Infra with no Domain = the usual mess.
+
+RED first. The failing test IS the slice.
+
+    it('creates a widget', function () {
+        $this->postJson('/api/v1/widgets', validWidgetPayload())
+             ->assertCreated();
+        expect(DB::connection('alpha')->table('widget')->count())->toBe(1);
+    });
+    # fails: route does not exist. Good. Now make it pass.
+
+YOU paste:
+
+    Implement use case "<name>" in module <name>.
+    Follow module-guideline.txt section 2.
+    Requirements for THIS use case only:
+      <paste the slice card>
+
+    Write the failing integration test first. Then build inward and
+    show each file as you go:
+
+      1. Domain         private constructor, factory that can refuse,
+                        state-change methods. No Illuminate. A unit
+                        test for the rule.
+      2. Contracts      only if another module needs this. Do not
+                        publish speculatively.
+      3. Application    one folder: Command, Handler, Result.
+                        Ports/ for every outside need.
+                        Inject Transactional, Clock, Ids.
+                        Calls to other modules BEFORE the transaction.
+      4. Infrastructure Eloquent ONLY in Persistence/, mapped to
+                        domain objects. One schema.
+                        Cross-module ids: bare column, no FK, comment.
+      5. Api            route in the module, no module name in the URL.
+                        FormRequest = shape only. Thin controller.
+
+    Constraints I will check:
+      - no Eloquent outside Infrastructure/Persistence
+      - no facade in Domain or Application
+      - no query or relation into another schema
+      - money = integer minor units + currency
+      - cursorPaginate, never paginate
+      - UI in frontend/, never in the module
+
+    Do not add anything I did not ask for.
+    When done, verify module-guideline.txt section 10 and tell me
+    any item you cannot tick.
+
+THEN strengthen the test to the three things that matter:
+
+    ┌────────────┐   ┌────────────┐   ┌────────────┐
+    │  response  │   │    rows    │   │   events   │
+    │  status,   │   │  this      │   │  outbox    │
+    │  body      │   │  schema    │   │  row, or   │
+    │            │   │            │   │  empty     │
+    └────────────┘   └────────────┘   └────────────┘
+
+    Never assert on error-message wording. Never assert on framework
+    internals. Review THIS slice before starting the next. Mistakes copy.
+
+
+    EVENT SLICE - the test that proves the architecture, not one module.
+
+        publisher   outbox has WidgetActivated
+        subscriber  drainOutbox();  then the other schema changed
+                    drainOutbox();  AGAIN  → still one row
+                    NEVER sleep()
+
+
+    UI SLICE - if a human sees it. After the server slice is green.
+
+        storefront   frontend/storefront/Http/ + views/
+                     controller calls CONTRACTS only
+        admin        frontend/admin/  typed fetchers → /api/v1
+        do not re-test a server rule through the browser
+
+
+===============================================================================
+7 - STAGE 5  TESTS     (checklist, not taste)
+===============================================================================
+
+    ┌──────────────────────────┬───────────────────────────────────────┐
+    │ What changed             │ The test                              │
+    ├──────────────────────────┼───────────────────────────────────────┤
+    │ a rule                   │ unit, on the domain object, no DB     │
+    │ a use case               │ integration through the endpoint      │
+    │                          │ DEFAULT                               │
+    │ a published contract     │ call it as another module would.      │
+    │                          │ 20 ids = 1 query                      │
+    │ a published event        │ outbox row. drainOutbox. run-twice.   │
+    │ a migration              │ apply in CI on realistic data         │
+    │ an external provider     │ fake AT THE PORT, not by HTTP         │
+    │ a Blade page             │ one render test through the route     │
+    └──────────────────────────┴───────────────────────────────────────┘
+
+    FAKE         mail, payments, third-party HTTP. At the port.
+    INJECT       Clock. Never now() in a handler.
+    NEVER FAKE   the database, the event bus, the module under test.
+
+YOU paste:
+
+    Write the tests for use case "<name>".
+
+      - happy path: HTTP response, database rows, published events
+      - one test per error path, pinning the problem `type` URI,
+        never the message wording
+      - a permission test
+      - idempotency test if this endpoint writes
+      - pagination test if it lists
+      - if it publishes: outbox row + drainOutbox + run-twice
+
+    Builders, not fixtures. Observable outcomes only.
+    Never "a job was dispatched". Never internal method calls.
+    Run them. Show me the output.
+
+WHEN A TEST FAILS - you paste this, not "fix it":
+
+    That failure is the information I wanted. Explain the cause
+    before changing anything. Is the bug in the test or in the code?
+    Do not weaken the assertion. Do not add a sleep.
+
+
+===============================================================================
+8 - STAGE 6  REVIEW
+===============================================================================
+
+    composer check
+           │
+           ├── RED ──► send it back. You are done reviewing.
+           │
+           └── GREEN ──► YOU read five files, in this order:
+
+    ┌──────────────────┬──────────────────────────────────────────────┐
+    │ 1 composer.json  │ depends on another module's internals?       │
+    │ 2 module note    │ does the code still own what it claimed?     │
+    │ 3 Application/   │ folders are use cases. Commands/ or          │
+    │                  │ Services/ means the slice is gone.           │
+    │ 4 Domain/        │ any `use Illuminate`? rules, or getters?     │
+    │ 5 Migrations/    │ one schema? ->foreign() out of it?           │
+    │                  │ every cross-schema id has its comment?       │
+    └──────────────────┴──────────────────────────────────────────────┘
+
+YOU paste:
+
+    Review against module-guideline.txt sections 5 and 11.
+    For each item: complies, or quote the line that does not.
+
+    Then: what are you least confident about, and what did I not
+    ask that I should have?
+
+Then YOU look at the diff once:
+
+    [ ] a model outside Persistence
+    [ ] a contract call inside a loop
+    [ ] a rule that exists only in a FormRequest
+    [ ] NOT NULL column, or index without CONCURRENTLY
+    [ ] event in present tense, or no eventId
+    [ ] a test EDITED rather than added
+    [ ] frontend/ knows a table name
+    [ ] Eloquent relation across modules
+    [ ] Deptrac collector on modules/<name>/src/.*
+
+
+===============================================================================
+9 - ADDING A FEATURE TO AN EXISTING MODULE
+===============================================================================
+Same pipeline, smaller. Skip skeleton. Skip "is it a module".
+
+    ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+    │ slice    │──►│ plan the │──►│ one      │──►│ tests +  │
+    │ card     │   │ files    │   │ slice    │   │ review   │
+    └──────────┘   └──────────┘   └──────────┘   └──────────┘
+
+    New behaviour that needs an `if` inside an existing handler
+    changing what that use case MEANS = a new use-case folder.
+    Could you delete this feature by deleting one folder? If not,
+    it was not a slice.
+
+    Contracts/ only if another module needs the feature.
+    A feature reached only over HTTP never publishes a contract.
+
+
+===============================================================================
+10 - WHAT THE AGENT WILL GET WRONG
+===============================================================================
+Textbook Laravel is the opposite of this project. It will reach for
+every one of these. Check by name.
+
+    ┌────────────────────────────────┬────────────────────────────────┐
+    │ It will write                  │ Instead                        │
+    ├────────────────────────────────┼────────────────────────────────┤
+    │ Eloquent in a controller       │ map in the repository          │
+    │ route model binding            │ bind the id, load via repo     │
+    │ DB::transaction() in a handler │ inject Transactional           │
+    │ now() / auth() in Domain       │ inject Clock / CurrentUser     │
+    │ $widget->subscription          │ store the id, call a contract  │
+    │ paginate()                     │ cursorPaginate()               │
+    │ the rule only in FormRequest   │ the rule lives in Domain       │
+    │ a model returned from a        │ map to a DTO                   │
+    │   contract                     │                                │
+    │ app/Models                     │ Persistence/ inside the module │
+    │ a second -contracts package    │ src/Contracts/ inside it       │
+    │ collector on src/.*            │ one collector per subfolder    │
+    │ Blade/React inside the module  │ frontend/                      │
+    │ six endpoints in one turn      │ one slice, then wait           │
+    │ a relaxed assertion to go      │ explain the failure, then fix  │
+    │   green                        │ the code                       │
+    └────────────────────────────────┴────────────────────────────────┘
+
+    Three of those compile, pass a naive test, and only fail when you
+    extract the module a year later: the cross-module relation, the
+    model in a contract, Eloquent escaping Persistence.
+
+    Human failure: accepting a large GREEN diff. The agent wrote the
+    tests. Green means the tests say it works. That is why Stage 5
+    takes its list from the checklist, and why Stage 2 exists at all.
+
+
+===============================================================================
+11 - COMMANDS
+===============================================================================
+
+    ONCE
+        composer install && npm install
+        cp .env.example .env && php artisan key:generate
+        docker compose -f docker-compose.test.yml up -d
+        php artisan db:bootstrap
+        php artisan migrate
+
+    EVERY DAY
+        composer test      while coding. Unit + arch. Seconds.
+        composer check     before push. Deptrac, PHPStan, all tests.
+
+        vendor/bin/pest --testsuite=integration --filter=Widget
+        php artisan queue:work
+        npm run dev
+
+    Tests run against real PostgreSQL. SQLite cannot prove the wall.
+
+    composer check
+        deptrac     a boundary crossed
+        phpstan     types
+        pest arch   model outside Persistence, facade in Domain
+        pest unit   the rules
+        pest int.   the slices, real database
+
+    A red gate means fix the code. Never loosen the gate.
+
+
+===============================================================================
+12 - DONE
+===============================================================================
+
+    [ ] module note matches what the code owns
+    [ ] composer check is green
+    [ ] schema permission test passes - the wall is real
+    [ ] every use case: response + rows + events
+    [ ] every error path pins its problem `type` URI
+    [ ] every published contract method has a direct test
+        (batch → single-query assertion)
+    [ ] every event has a shape; every listener is run-twice safe
+    [ ] no item in module-guideline.txt section 11 applies
+    [ ] YOU read the five files in section 8
+
+    The last line is not optional. Tools verify the rules.
+    Only you verify that the module does what the business needed.
+
+    Checklists: module-guideline.txt section 6 (new module),
+                section 10 (a change).
+===============================================================================

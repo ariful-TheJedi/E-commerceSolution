@@ -1,0 +1,214 @@
+===============================================================================
+                        F O L D E R   S T R U C T U R E
+===============================================================================
+One Laravel application. React lives inside it, under frontend/. Every module
+keeps its public contracts inside its own folder.
+
+Placeholder module names: alpha, beta. Which modules actually exist is a
+later decision.
+
+
+-------------------------------------------------------------------------------
+1 - TOP LEVEL
+-------------------------------------------------------------------------------
+
+    /
+    ├── app/                      HOST ONLY. Stays thin. No business rules.
+    │   ├── Http/Middleware/      correlation id, idempotency, auth,
+    │   │                         rate limits
+    │   └── Providers/            registers each module, one line each
+    │
+    ├── bootstrap/app.php         exception handling → problem details
+    ├── config/database.php       one connection per module
+    ├── config/view.php           points at frontend/storefront/views
+    ├── routes/
+    │   ├── api.php               mounts module route files. Defines nothing.
+    │   └── web.php               mounts the storefront, plus the admin shell
+    │
+    ├── frontend/                 ALL UI. See part 3.
+    ├── modules/                  ALL DOMAIN CODE. See part 2.
+    │
+    ├── packages/
+    │   ├── shared/               SHARED KERNEL. Tiny and guarded: Money,
+    │   │                         Currency, Ids, Clock, Result, Cursor
+    │   └── platform/             MACHINERY, no domain knowledge: event bus,
+    │                             outbox worker, idempotency, problem
+    │                             details, paging helpers
+    │
+    ├── database/
+    │   ├── bootstrap/            schemas, roles, grants
+    │   └── migrations/           STAYS EMPTY. Migrations live in modules.
+    │
+    ├── public/                   index.php, plus built assets
+    ├── resources/                STAYS EMPTY. Views live in frontend/.
+    │
+    ├── tests/
+    │   ├── Architecture/         Pest architecture tests, blocking
+    │   └── System/               thin cross-module flows
+    │
+    ├── composer.json             path repos: modules/*, packages/*
+    ├── package.json              all JS deps, one set for both surfaces
+    ├── deptrac.yaml
+    ├── phpstan.neon
+    ├── AGENTS.md
+    ├── .cursorrules
+    └── doc/                      architecture-map, folder-structure,
+                                  module-guideline, dev-workflow,
+                                  tech-stack, Features-list
+
+Two directories are deliberately empty. `resources/` is empty because views
+moved to frontend/, and `database/migrations/` is empty because each module
+registers its own migration path from its service provider. If you find a
+file in either one, it is in the wrong place.
+
+
+-------------------------------------------------------------------------------
+2 - ONE MODULE
+-------------------------------------------------------------------------------
+Five folders, always the same five. Contracts is one of them, not a separate
+package.
+
+    modules/alpha/
+    ├── composer.json                 name: modules/alpha
+    │                                 psr-4: Modules\Alpha\ → src/
+    ├── src/
+    │   ├── AlphaServiceProvider.php  loads its routes and migrations
+    │   │
+    │   ├── Contracts/            ◄── PUBLIC. The only folder other
+    │   │   ├── AlphaApi.php          modules may reference.
+    │   │   ├── Dto/                  readonly, plain types only
+    │   │   └── Events/               past tense, immutable
+    │   │
+    │   ├── Api/                  ◄── PRIVATE from here down.
+    │   │   ├── Routes/api.php        JSON API only. Never Blade.
+    │   │   ├── Controllers/          thin, no rules
+    │   │   ├── Requests/             edge validation only
+    │   │   └── Resources/            response shaping
+    │   │
+    │   ├── Application/
+    │   │   ├── CreateWidget/         ONE FOLDER PER USE CASE
+    │   │   │   ├── CreateWidgetCommand.php
+    │   │   │   ├── CreateWidgetHandler.php
+    │   │   │   └── CreateWidgetResult.php
+    │   │   ├── Ports/                interfaces this module needs
+    │   │   └── Listeners/            reactions to others' events
+    │   │
+    │   ├── Domain/                   PURE PHP. No Illuminate, no facades,
+    │   │   ├── Widget.php            no Eloquent, no Carbon, no now()
+    │   │   ├── ValueObjects/
+    │   │   └── Rules/
+    │   │
+    │   └── Infrastructure/
+    │       ├── Persistence/
+    │       │   ├── Models/           ELOQUENT LIVES HERE ONLY
+    │       │   ├── Repositories/     map models ↔ domain objects
+    │       │   └── Migrations/       this module's schema only
+    │       ├── Adapters/             external providers, behind ports
+    │       ├── ReadModels/           projections it maintains
+    │       └── AlphaApiImpl.php      implements Contracts/AlphaApi
+    │
+    └── tests/
+        ├── Unit/
+        └── Integration/
+
+    modules/beta/ is identical in shape.
+
+THE RULE THIS SHAPE ENCODES
+    Another module may reference `Modules\Alpha\Contracts\` and nothing else
+    under `Modules\Alpha\`. Contracts is a public folder inside an otherwise
+    private package. Dependencies still point inward: Domain depends on
+    nothing, and Infrastructure implements interfaces Application declares.
+
+
+-------------------------------------------------------------------------------
+3 - FRONTEND
+-------------------------------------------------------------------------------
+
+    frontend/
+    ├── storefront/               PUBLIC. Server-rendered, crawlable.
+    │   ├── Http/                 thin controllers - CONTRACTS ONLY
+    │   ├── routes/web.php        mounted by routes/web.php
+    │   ├── views/                Blade templates
+    │   ├── islands/              React, only where genuinely interactive
+    │   │   ├── main.tsx          entry, mounts islands by data attribute
+    │   │   └── AddToCart.tsx
+    │   └── vite.config.ts        builds to public/build
+    │
+    └── admin/                    PRIVATE. React SPA behind a login.
+        ├── src/
+        │   ├── main.tsx
+        │   ├── routes/           TanStack Router
+        │   ├── api/              typed fetchers for /api/v1
+        │   └── components/
+        ├── index.html
+        └── vite.config.ts        builds to public/admin
+
+HOW THE TWO ARE WIRED
+
+    Storefront   `config/view.php` points at frontend/storefront/views. A
+                 Blade layout pulls the island bundle in with
+                 @vite('frontend/storefront/islands/main.tsx').
+
+    Admin        Served under one prefixed catch-all so it can never
+                 shadow the API or a storefront URL:
+                     Route::view('/admin/{any?}', 'admin')
+                          ->where('any', '.*');
+                 That view loads the bundle built into public/admin.
+                 Client-side routing then takes over.
+
+    Data         Blade controllers call module contracts in-process.
+                 React only ever speaks HTTP to /api/v1. Neither touches a
+                 table, holds a rule, or knows a module name.
+
+
+-------------------------------------------------------------------------------
+4 - ENFORCING THE BOUNDARY NOW THAT CONTRACTS ARE NESTED
+-------------------------------------------------------------------------------
+Deptrac layers become directories inside the module instead of separate
+packages. Same rules, different paths:
+
+    layers:
+      - name: AlphaContracts
+        collectors:
+          - type: directory
+            value: modules/alpha/src/Contracts/.*
+      - name: AlphaDomain
+        collectors:
+          - type: directory
+            value: modules/alpha/src/Domain/.*
+      - name: AlphaApplication
+        collectors:
+          - type: directory
+            value: modules/alpha/src/Application/.*
+      # ... Api and Infrastructure the same way
+
+    ruleset:
+      AlphaDomain:         [ Shared ]
+      AlphaApplication:    [ AlphaDomain, Shared, BetaContracts ]
+      AlphaInfrastructure: [ AlphaDomain, AlphaApplication, Shared, Platform ]
+      AlphaApi:            [ AlphaApplication, Shared ]
+      AlphaContracts:      [ Shared ]
+      Frontend:            [ Shared, AlphaContracts, BetaContracts ]
+
+ONE MISTAKE TO AVOID
+    Never write a collector for `modules/alpha/src/.*`. It matches all five
+    folders at once, silently collapses them into a single layer, and every
+    rule above stops meaning anything while Deptrac still reports green.
+    Always collect the subfolder, never the module root.
+
+
+-------------------------------------------------------------------------------
+5 - WHAT THIS TRADES AWAY, AND HOW TO GET IT BACK
+-------------------------------------------------------------------------------
+With contracts as a folder rather than its own Composer package, a module's
+composer.json no longer states "I depend on beta's contracts and not on
+beta's internals". That sentence was a machine-checkable fact; now it is a
+Deptrac rule instead. Deptrac already blocks the build, so the boundary is
+still enforced - it is enforced in one place rather than two.
+
+The choice is reversible at no cost to calling code. Namespaces are what
+callers depend on, and PSR-4 maps a namespace to whichever directory you
+like. Moving `src/Contracts/` out to `modules/alpha/contracts/src/` with its
+own composer.json keeps the namespace `Modules\Alpha\Contracts\` exactly as
+it was, so not one `use` statement anywhere changes. Do it if and when a
+module is extracted into its own service.

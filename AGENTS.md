@@ -7,20 +7,20 @@ businesses first.
 
 **Current stage: architecture only. No application code exists yet.**
 
-**Stack:** Laravel (PHP) for the API, React for the UI as a separate client
-consuming it, PostgreSQL for the database. See
-`docs/decisions/0001-stack.md` for the reasoning and the conditions it
-depends on.
+**Stack:** Laravel (PHP) for the API, PostgreSQL for the database. Two front
+ends: Blade server-rendered for the public storefront with React islands, and
+a React SPA (Vite + TanStack Query/Router) for the admin behind a login. See
+`doc/architecture-map.txt` and `doc/tech-stack.txt`.
 
 ## Source of truth
 
 | Document | What it covers |
 | --- | --- |
-| `Dev/system-design.txt` | The architecture and database design. Authoritative and stack-independent. |
-| `Dev/change-guide.txt` | Procedures for adding modules, features, and database changes. Authoritative. |
-| `Dev/laravel-guardrails.txt` | How each architectural rule is achieved in Laravel, and which Laravel idioms are forbidden as a result. |
-| `docs/decisions/` | One short record per decision made. |
-| `api-dev.txt`, `database.txt`, `Features-list.txt` | Earlier feature-level drafts. Useful background, **not** authoritative on architecture. Where they conflict with `Dev/`, `Dev/` wins. |
+| `doc/architecture-map.txt` | The architecture: diagrams for database, modules, API, frontend. Authoritative. |
+| `doc/folder-structure.txt` | Where every file goes. Nested contracts. `frontend/` is top-level. |
+| `doc/module-guideline.txt` | How to build or change a module, and the done checklists. |
+| `doc/dev-workflow.txt` | How we build with an AI assistant: six stages, prompts, tests, review. |
+| `doc/tech-stack.txt` | Versions, tooling, and what is not decided yet. |
 
 Read the relevant document before proposing architecture, database, API, or
 testing decisions. Do not re-derive answers that are already written down.
@@ -29,7 +29,7 @@ testing decisions. Do not re-derive answers that are already written down.
 
 This is the mistake to avoid in this repo. Three distinct conversations:
 
-1. **Architecture** — the abstract shape of the system. Decided; see `Dev/`.
+1. **Architecture** — the abstract shape of the system. Decided; see `doc/architecture-map.txt`.
 2. **Modules** — which capabilities exist. **Not decided yet.**
 3. **Features and requirements** — what each capability does. Not decided yet.
 
@@ -56,7 +56,7 @@ Three sub-decisions come with it:
 - **In the database** — no foreign keys across schemas, one writer per table,
   cross-schema SQL only in read-only `reporting` views.
 
-Rejected alternatives, with reasoning in `Dev/system-design.txt` Part 2.3: a
+Rejected alternatives, with reasoning in `doc/architecture-map.txt` section 2: a
 layered monolith (no seam to cut later), a modular monolith on a shared schema
 (code boundaries without data boundaries do not survive), a few coarse
 services, and fine-grained microservices (both are the natural next step, not
@@ -95,7 +95,7 @@ any request that would.
   tested exception.
 - Migrations live in the owning module and touch one schema. Never rename,
   retype, or set `NOT NULL` directly — use expand-contract
-  (`Dev/change-guide.txt` Part 4.5).
+  (`doc/module-guideline.txt` section 9).
 - Keys: `id UUID` time-ordered (UUIDv7). Money: integer minor units plus an
   explicit currency code, never a float. Time: `TIMESTAMPTZ` in UTC.
 
@@ -107,13 +107,13 @@ DTOs, events) and a private one containing `Api`, `Application`, `Domain`,
 
 Group files by use case, not by technical type — one folder per use case
 holding its command, handler, validator and result. See
-`Dev/system-design.txt` Part 4 for the full tree and
-`Dev/change-guide.txt` Part 3.2 for where each kind of file goes.
+`doc/folder-structure.txt` for the tree and `doc/module-guideline.txt` for
+where each kind of file goes.
 
-In Laravel this means one Composer path package per module plus a separate
-`-contracts` package. Domain code lives under `modules/`, never in `app/`;
-`app/` holds host concerns only — middleware, providers, exception handling.
-The Laravel-specific tree is in `Dev/laravel-guardrails.txt` Part 3.
+In Laravel this means one Composer path package per module. Contracts
+live in `src/Contracts/` inside that package, not as a second package.
+Domain code lives under `modules/`, never in `app/`; `app/` holds host
+concerns only. All UI lives under `frontend/`, outside every module.
 
 ## Laravel: forbidden, though idiomatic
 
@@ -158,7 +158,40 @@ Resource-oriented HTTP, JSON, contract-first. Path-major versioning
 (`/api/v1/`), additive-only within a version. Cursor pagination, not offset.
 `Idempotency-Key` on mutating writes. One error shape everywhere: RFC 9457
 problem details, where clients switch on a stable `type` URI. Details in
-`Dev/system-design.txt` Part 5.
+`doc/architecture-map.txt` section 6.
+
+Routes are defined inside the module that owns them, but there is still one
+router — the host mounts, it does not define. **Module names never appear in
+URLs**; the API is one coherent surface and module boundaries are invisible
+from outside. An endpoint whose only job is composing several modules' data
+for a screen belongs to the thin composition layer: contracts only, no
+tables, no business rules. An endpoint that *writes* to several modules is a
+design smell — one decision belongs to the owning module, the consequences
+are events.
+
+## Frontend
+
+Two surfaces, split by whether a crawler sees the page. Blade server-rendered
+for the public storefront, with React islands only where a part of the page is
+genuinely interactive. A React SPA (Vite, TanStack Query, TanStack Router) for
+the admin behind a login.
+
+**All UI lives in one top-level `frontend/` directory** — `frontend/storefront/`
+(Blade views, thin controllers, island sources) and `frontend/admin/` (the
+SPA). Not in `resources/views`, and never inside a module. A module's `Api`
+layer serves the JSON API only. Deptrac covers `frontend/` as its own layer,
+allowed to reach `shared` and `*-contracts` and nothing else.
+
+- A storefront controller calls **module contracts only** — never an Eloquent
+  model, a query builder, or a table name, and it holds no business rules. It
+  is the thin composition layer.
+- React holds no database credentials, no ORM, and no business rules. A rule
+  enforced only in the frontend is not enforced.
+- Blade calls contracts in-process. React speaks HTTP to `/api/v1` only, and
+  never calls the app's own API from the server.
+- One composition endpoint per screen, not eight calls from the browser.
+
+The map is `doc/architecture-map.txt` section 8.
 
 ## Testing
 
@@ -166,14 +199,13 @@ Confidence comes from module integration tests against a real containerised
 database — not from mocks. Fake only what is outside the process (providers,
 mail, storage); never fake the database, the event bus, or the module under
 test. Architecture tests enforce the rules above and are not optional.
-Details in `Dev/system-design.txt` Part 6.
+Strategy and how-to in `doc/architecture-map.txt` section 10 and
+`doc/dev-workflow.txt`.
 
 ## Working style in this repo
 
 - Answer the question that was asked. Do not expand the scope.
 - Plain language over jargon. Short over long.
 - Do not invent modules, features, or requirements that have not been decided.
-- When a decision is made, record it in `docs/decisions/` in a few lines:
-  the choice, the alternatives, why.
 - If a request conflicts with a rule above, say so and explain the cost
   rather than quietly complying.

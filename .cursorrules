@@ -1,121 +1,100 @@
-E-commerce solution for small to mid-sized businesses.
+E-commerce for small to mid-sized businesses.
+STAGE: architecture only. No application code yet.
+STACK: Laravel (PHP) API, PostgreSQL, Blade storefront + React admin.
+       Versions: doc/tech-stack.txt. Shape: doc/architecture-map.txt.
 
-STAGE: architecture only. No application code exists yet.
+===============================================================================
+READ THESE FIRST  - before any plan, file, or answer
+===============================================================================
 
-STACK: Laravel (PHP) for the API, React for the UI as a separate client,
-PostgreSQL for the database. See docs/decisions/0001-stack.md.
+  1. doc/architecture-map.txt     the system. Diagrams. Authoritative.
+  2. doc/folder-structure.txt     where every file goes.
+  3. doc/module-guideline.txt     how to build or change a module.
+  4. doc/dev-workflow.txt         how we work together. One slice per turn.
 
-READ FIRST
-  Dev/system-design.txt      architecture and database design (authoritative)
-  Dev/change-guide.txt       how to add modules, features, database changes
-  Dev/laravel-guardrails.txt how the architecture is achieved in Laravel,
-                             and which Laravel idioms are forbidden
-  AGENTS.md                  the condensed version
-Root files api-dev.txt, database.txt and Features-list.txt are earlier
-feature-level drafts. Where they conflict with Dev/, Dev/ wins.
+If two of those disagree: doc/architecture-map.txt wins on shape,
+doc/folder-structure.txt wins on paths, doc/module-guideline.txt wins on
+procedure.
 
-KEEP THESE TOPICS SEPARATE
-  1. Architecture       — decided, in Dev/
-  2. Which modules exist — NOT decided
-  3. Features and requirements — NOT decided
-When asked about one, do not answer with another. Architecture docs must not
-name modules or features; use placeholders (Module A, schema alpha, table
-widget).
+Do not name real modules or features. Use placeholders: Module A,
+schema alpha, table widget. Architecture, which modules exist, and
+features are three separate conversations. Answer only the one asked.
 
-THE ARCHITECTURE — DECIDED, DO NOT RE-OPEN
-MODULAR MONOLITH WITH ONE SCHEMA PER MODULE, BUILT SO ANY MODULE CAN BE
-EXTRACTED INTO ITS OWN SERVICE LATER WITHOUT A REWRITE.
 
-One deployable app. Self-contained modules inside it. One PostgreSQL database
-with one private schema per module, each with its own database roles.
+===============================================================================
+HOW YOU WORK
+===============================================================================
 
-Three sub-decisions that come with it:
-  - Inside a module: four layers (api, application, domain, infrastructure)
-    with dependencies pointing inward, files grouped by use case. Known as
-    clean/hexagonal architecture with vertical slices.
-  - Between modules: synchronous contract call when the answer is needed to
-    finish the request; event when announcing that something happened.
-  - In the database: no foreign keys across schemas, one writer per table,
-    cross-schema SQL only in read-only reporting views.
+You write code. The developer owns requirements and review. The tools
+decide if it was right.
 
-Rejected, with reasons in Dev/system-design.txt Part 2.3: layered monolith
-(no seam to cut later), modular monolith on a shared schema (code boundaries
-without data boundaries do not survive), a few coarse services and
-fine-grained microservices (both are the next step, not the starting point).
-Do not propose these unless the user explicitly reopens the decision.
+  - One use case per turn. Never "build the whole module".
+  - List files you will touch, one line each, THEN WAIT if asked.
+  - If a requirement is missing: STOP AND ASK. Do not invent it.
+  - Do not refactor anything you were not asked to touch.
+  - Point at the four files above. Do not paste their rules back.
 
-THE FIVE LAWS — never break these, and flag any request that would
-  1. One owner. Each table belongs to one module; only it writes or migrates.
-  2. Published surface only. Use another module's contract, never its
-     classes, tables, or HTTP routes.
-  3. One direction. Dependencies point one way. No cycles.
-  4. Outside goes behind a port, implemented by an adapter.
-  5. Additive first. Never rename in place; removal is a separate later step.
+Pipeline: require → plan (no files) → skeleton → one slice → tests
+          → composer check → human review. Details: doc/dev-workflow.txt.
 
-DATABASE
-  - Schema per module, plus platform (machinery) and reporting (read-only
-    cross-schema views). public stays empty.
-  - Same schema: real foreign keys, constraints, joins — use them freely.
-  - Across schemas, current value: store the bare id, NO foreign key, index
-    it, resolve via the owner's contract, and comment why there is no
-    constraint.
-  - Across schemas, historical value: copy it in at the time of the event and
-    never update the copy.
-  - Cross-schema SQL only in reporting views.
-  - One transaction per module. Exceptions must be documented and tested.
-  - Migrations live in the owning module, touch one schema. Never rename,
-    retype, or set NOT NULL directly — use expand-contract.
-  - id UUID time-ordered (UUIDv7). Money = integer minor units + currency
-    code, never a float. Time = TIMESTAMPTZ in UTC.
 
-CODE STRUCTURE
-Each module: a public Contracts unit (interfaces, DTOs, events) and a private
-unit with Api, Application, Domain, Infrastructure. Dependencies point inward;
-Domain depends on nothing. Group files by use case, not by technical type.
-In Laravel: one Composer path package per module plus a separate -contracts
-package. Domain code lives in modules/, never in app/. app/ holds host
-concerns only — middleware, providers, exception handling.
+===============================================================================
+THE SHAPE  - decided, do not reopen
+===============================================================================
 
-LARAVEL — FORBIDDEN, though idiomatic. These break the rules above.
-  - Eloquent models outside Infrastructure/Persistence. Repositories map
-    models to domain objects; models never appear in controllers, handlers,
-    domain classes, DTOs, events or API resources.
-  - Eloquent relations crossing a module boundary. Inside a module they are
-    fine and encouraged. Across modules it is a cross-schema join.
-  - Route model binding. Bind the id, load through the repository.
-  - DB:: or query builder against another module's tables.
-  - Facades and global helpers (auth(), request(), config(), now(), DB::,
-    Cache::, Http::) in Domain or Application. Inject dependencies instead.
-    Fine in Infrastructure and Api.
-  - ->foreign() across schemas. renameColumn on a live table.
-  - A global app/Models folder.
-  - Observers or global scopes reaching into another module.
-  - paginate() on lists that grow — use cursorPaginate().
-  - Business rules enforced only in a FormRequest. The module is also
-    reachable through its contract, where no FormRequest runs.
-Enforced by Deptrac and Pest architecture tests in CI, both blocking.
-If one of these looks like the only reasonable answer, say so and raise it —
-it is a signal about the boundaries, not permission.
+Modular monolith. One app, one Postgres, one schema per module.
+Any module can be extracted later without a rewrite.
 
-MODULE COMMUNICATION
-Need the answer before finishing the request? Call the other module's
-contract, batch-shaped, never in a loop. Otherwise publish an event: past
-tense, immutable, idempotent handlers, publisher indifferent to the outcome.
+  Inside a module     four layers, dependencies inward, files by use case
+  Between modules     need the answer now? contract call (batch, no loop).
+                      announcing a fact? event (past tense, idempotent).
+  Database            no FK across schemas. one writer per table.
+                      cross-schema SQL only in reporting views.
 
-API
-Resource-oriented HTTP, JSON, contract-first. /api/v1 path versioning,
-additive-only within a version. Cursor pagination, not offset.
-Idempotency-Key on mutating writes. RFC 9457 problem details for every error,
-with a stable type URI.
+Rejected (doc/architecture-map.txt section 2): layered monolith, shared
+schema, coarse services, fine microservices. Do not propose them
+unless the developer reopens the decision.
 
-TESTING
-Confidence comes from module integration tests against a real containerised
-database, not from mocks. Fake only what is outside the process. Never fake
-the database, the event bus, or the module under test. Architecture tests
-enforce the rules above and are not optional.
 
+===============================================================================
+FIVE LAWS  - never break. Flag any request that would.
+===============================================================================
+
+  1  One owner.            One module writes and migrates each table.
+  2  Published surface.    Use Contracts/. Never internals, tables, HTTP.
+  3  One direction.        No cycles.
+  4  Outside behind a port. Adapter implements the interface.
+  5  Additive first.       Never rename in place. Removal is a later step.
+
+
+===============================================================================
+HARD STOPS
+===============================================================================
+
+Contracts live in modules/<name>/src/Contracts/. Not a second package.
+UI lives in frontend/. Not in resources/views, not in a module.
+Domain: no Illuminate, no facades, no now(), no Eloquent.
+Eloquent: Infrastructure/Persistence/ only. Never in a controller,
+handler, domain class, DTO, event, or resource.
+No route model binding. Bind the id, load through the repository.
+No DB:: / query / Eloquent relation into another module's schema.
+No ->foreign() across schemas. No renameColumn on a live table.
+No app/Models. No paginate() on lists that grow → cursorPaginate().
+A rule only in a FormRequest is not a rule (contracts skip it).
+Module names never appear in URLs.
+Storefront controllers call contracts only. React talks to /api/v1 only.
+Never fake the database, the event bus, or the module under test.
+
+If one of these looks like the only answer, say so. That is a boundary
+signal, not permission.
+
+Ids: UUIDv7. Money: integer minor units + currency. Time: TIMESTAMPTZ UTC.
+Errors: RFC 9457, switch on `type`. Writes: Idempotency-Key.
+
+
+===============================================================================
 WORKING STYLE
-Answer what was asked; do not expand scope. Plain language, short over long.
-Do not invent modules, features or requirements that have not been decided.
-Record decisions in docs/decisions/ in a few lines. If a request conflicts
-with a rule here, say so and explain the cost instead of quietly complying.
+===============================================================================
+
+Answer what was asked. Do not expand scope. Short over long.
+If a request conflicts with a law, say so and explain the cost.

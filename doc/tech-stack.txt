@@ -1,0 +1,246 @@
+===============================================================================
+                          T E C H N O L O G Y   S T A C K
+===============================================================================
+What we build with, which version, and why. This file is the inventory.
+Shape of the system: architecture-map.txt.
+
+Versions checked 2026-08-24. Anything with a version number here is pinned in
+composer.json or package.json - this file is the summary, those files are the
+truth.
+
+
+===============================================================================
+1 - AT A GLANCE
+===============================================================================
+
+    ┌──────────────────┬─────────────────────────┬──────────────────────┐
+    │ Layer            │ Choice                  │ Version              │
+    ├──────────────────┼─────────────────────────┼──────────────────────┤
+    │ Language         │ PHP                     │ 8.3+ (8.4 preferred) │
+    │ API framework    │ Laravel                 │ 13.x                 │
+    │ Database         │ PostgreSQL              │ 18.x                 │
+    │ Storefront UI    │ Blade + React islands   │ React 19.x           │
+    │ Admin UI         │ React SPA on Vite       │ React 19.x           │
+    │ Admin routing    │ TanStack Router         │ 1.x                  │
+    │ Admin data       │ TanStack Query          │ 5.x                  │
+    │ Module packages  │ Composer path packages  │ -                    │
+    │ Boundary checks  │ Deptrac                 │ 4.x                  │
+    │ Static analysis  │ PHPStan + Larastan      │ 2.x                  │
+    │ Tests            │ Pest                    │ 4.x                  │
+    │ Test database    │ PostgreSQL in Docker    │ 18.x                 │
+    └──────────────────┴─────────────────────────┴──────────────────────┘
+
+Minor versions move; majors are a decision. See Part 7.
+
+
+===============================================================================
+2 - BACKEND: LARAVEL 13 ON PHP 8.3+
+===============================================================================
+
+WHY LARAVEL
+    Easy to learn, deep documentation, proven for this class of application,
+    and a large local hiring pool - which matters because work will be
+    outsourced or hired later. The cost accepted: Laravel will not
+    enforce module boundaries; Deptrac and Pest architecture tests must.
+
+WHY VERSION 13
+    Released March 2026. Bug fixes to Q3 2027, security fixes to March 2028.
+    Laravel 12's active support ended in August 2026, so 13 is the only
+    sensible starting point for a project beginning now.
+
+WHY PHP 8.3 AS THE FLOOR
+    Laravel 13 requires it. It is also the floor for the language features
+    this architecture leans on: readonly classes for DTOs and value objects,
+    enums for status columns, and named arguments, which is what makes the
+    domain constructors in module-guide.txt readable.
+
+WHAT WE USE FROM THE FRAMEWORK
+    Routing, middleware, the container and its constructor injection, the
+    queue, the scheduler, Eloquent (confined to Infrastructure), migrations,
+    validation at the edge, and the exception handler.
+
+WHAT WE DELIBERATELY DO NOT USE
+    Eloquent outside Infrastructure/Persistence, route model binding,
+    facades in Domain or Application, a global app/Models folder, and
+    offset pagination. Each of these is idiomatic Laravel and each breaks a
+    rule in this architecture - the full list with reasons is in
+    laravel-guardrails.txt Part 11.
+
+
+===============================================================================
+3 - DATABASE: POSTGRESQL 18
+===============================================================================
+
+WHY POSTGRESQL
+    Schemas are the feature this whole architecture rests on: one private
+    schema per module, each with its own role and grants, in one database.
+    That gives real data isolation without running separate databases, and
+    it is why a stray cross-module query fails at runtime rather than
+    returning data.
+    Also: strong constraint support, real transactional DDL, proper types
+    for money and time, and mature tooling.
+
+WHAT WE RELY ON
+    Schemas and search_path      one per module, plus platform, reporting
+    Roles and grants             per-module credentials; the wall
+    TIMESTAMPTZ                  all times, stored UTC
+    BIGINT + CHAR(3)             money as minor units plus currency code
+    UUID                         primary keys, time-ordered (UUIDv7)
+    Views                        the reporting schema, read-only
+    Transactional DDL            makes expand-contract migrations safe
+
+NOT DECIDED YET
+    Whether we need full-text search in Postgres or a separate search
+    service. Whether we use pgvector for anything. Both are open, and
+    neither should be assumed.
+
+    ► Detail: architecture-map.txt section 3.
+
+
+===============================================================================
+4 - FRONTEND: BLADE + REACT
+===============================================================================
+Two surfaces, split by whether a crawler ever sees the page. A
+client-rendered storefront was rejected: crawlers and social previews
+need HTML in the first response. Map: architecture-map.txt section 8.
+
+STOREFRONT - Blade, server-rendered
+    Blade templates render full HTML on the server: content, metadata and
+    links are in the first response. React is mounted only as islands, in
+    the parts that are genuinely interactive.
+    No Node runtime in production. No hydration cost on a cheap phone.
+
+ADMIN - React SPA on Vite
+    React 19 with TypeScript, built by Vite. TanStack Router owns the URL
+    and the loading boundaries. TanStack Query owns server state: caching
+    per query key, deduping, retries, background refetching, and
+    invalidation after a write. That last piece is what makes a plain SPA
+    feel fast against a REST API.
+
+WHERE IT LIVES
+    One top-level `frontend/` directory holds both surfaces:
+    `frontend/storefront/` and `frontend/admin/`. Not in Laravel's default
+    resources/views, and not inside any module. Deptrac covers it as its own
+    layer, allowed to reach `shared` and `*-contracts` only.
+
+BUILD TOOLING
+    Vite for the admin bundle and for the storefront's island bundles. One
+    toolchain for both, even though the two surfaces are separate apps, with
+    a vite.config.ts in each.
+
+STYLING - NOT DECIDED
+    No CSS framework or component library has been chosen. When one is,
+    it needs a decision record, because a UI kit is hard to leave.
+
+    ► The rules for how each surface reaches the modules:
+      architecture-map.txt section 7. Get those wrong and the module
+      boundaries stop meaning anything.
+
+
+===============================================================================
+5 - TOOLING AND THE QUALITY GATES
+===============================================================================
+Laravel enforces none of this architecture, so tools do. All of these block
+the build; that is the point of them.
+
+    COMPOSER PATH PACKAGES
+        One package per module plus a separate -contracts package. The
+        package's composer.json is the declared, reviewable statement of
+        what that module is coupled to.
+
+    DEPTRAC
+        Layer direction and module boundaries. Catches a module importing
+        another module's internals, or Api reaching into Infrastructure.
+
+    PHPSTAN + LARASTAN
+        Types, at a high level from day one. Retrofitting types into a
+        grown PHP codebase is miserable, and the value while learning is
+        high: mistakes surface as you type.
+
+    PEST
+        Unit, integration and architecture tests. The architecture suite
+        covers what Deptrac cannot: naming, immutability, past-tense event
+        names, and Eloquent staying inside Persistence.
+
+    DOCKER COMPOSE
+        A disposable PostgreSQL for tests, on tmpfs so it never touches
+        disk. The single biggest speed win in the test suite.
+
+    OPENAPI
+        The API description is generated and committed. CI diffs it, so a
+        removed or renamed field cannot ship silently.
+
+    ► Setup and commands: testing-guide.txt Part 3. Configuration:
+      laravel-guardrails.txt Part 9.
+
+
+===============================================================================
+6 - PLATFORM PIECES WE BUILD OURSELVES
+===============================================================================
+These are not libraries. They live in packages/platform, they contain no
+business knowledge, and every module uses them.
+
+    Transactional outbox    events written in the same transaction as the
+                            change, then dispatched. Laravel's after-commit
+                            dispatch loses the event if the process dies
+                            between commit and dispatch, so this is not
+                            optional.
+    Idempotency store       Idempotency-Key handling for mutating writes,
+                            and the seen-events list every listener checks.
+    Problem details        RFC 9457 error shape, one place, with stable
+                            type URIs.
+    Cursor paging helpers   because offset pagination is forbidden on lists
+                            that grow.
+    Clock and Ids ports     injectable time and UUIDv7 generation, so
+                            domain code never calls now() and tests are
+                            deterministic.
+    Transactional port      run a closure in this module's transaction, so
+                            Application never touches the DB facade.
+
+
+===============================================================================
+7 - WHAT IS NOT DECIDED
+===============================================================================
+Listed so nobody assumes. Each becomes a decision record when chosen, and
+each external service goes behind a port with a fake, per Law 4.
+
+    Hosting and deployment target        Queue driver (database, Redis, SQS)
+    Cache driver                         Search (Postgres FTS or a service)
+    Payment provider                     Mail and SMS providers
+    File and image storage               CI provider
+    Auth mechanism for the API           CSS framework / UI kit
+    Monitoring and error tracking        CDN
+
+Do not let one of these arrive by accident through a tutorial or a library
+default. The pattern that goes wrong: a provider SDK gets called directly
+from a handler, and now the module cannot be tested without the internet.
+
+
+===============================================================================
+8 - VERSION AND DEPENDENCY POLICY
+===============================================================================
+
+    MINOR AND PATCH UPDATES
+        Routine. Keep current; the test suite is the safety net.
+
+    MAJOR UPDATES
+        A decision, with a short record. Read the upgrade guide, run the
+        full suite including the architecture tests, and do it as its own
+        change rather than mixed into a feature.
+
+    ADDING A DEPENDENCY - four questions first
+        1. Which package does it belong to? A dependency added to a
+           module's composer.json is a coupling that module now carries.
+        2. Does it belong behind a port? Anything reaching outside the
+           process does. That keeps it swappable and testable.
+        3. Would removing it later be a rewrite? UI kits, ORMs and auth
+           libraries are the expensive ones. Those need a decision record.
+        4. Is it maintained? Check the last release and the open issue
+           count before, not after.
+
+    THE ONE THAT IS NOT NEGOTIABLE
+        A module never depends on another module's implementation package.
+        Only its -contracts package. If a package name without -contracts
+        appears in a module's composer.json, that is a broken boundary and
+        the build should fail.
+===============================================================================
