@@ -1,0 +1,43 @@
+deptrac:
+  paths:
+    - ./app
+    - ./packages
+    - ./frontend
+    - ./modules
+  exclude_files:
+    - '#.*[Tt]est.*#'
+  layers:
+    - name: Shared
+      collectors:
+        - type: directory
+          value: packages/shared/src/.*
+    - name: Platform
+      collectors:
+        - type: directory
+          value: packages/platform/src/.*
+    - name: Host
+      collectors:
+        - type: directory
+          value: app/.*
+    - name: Frontend
+      collectors:
+        - type: directory
+          value: frontend/.*
+    - name: Laravel
+      collectors:
+        - type: classNameRegex
+          value: '#^Illuminate\\#'
+        - type: classNameRegex
+          value: '#^Symfony\\Component\\HttpFoundation\\#'
+  ruleset:
+    Shared: []
+    Platform:
+      - Shared
+      - Laravel
+    Host:
+      - Shared
+      - Platform
+      - Laravel
+    Frontend:
+      - Shared
+      - Laravel

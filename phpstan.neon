@@ -1,0 +1,12 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+        - packages
+        - frontend/storefront
+        - modules
+    excludePaths:
+        - frontend/storefront/islands
+    level: 6

@@ -40,6 +40,8 @@ later decision.
     │   └── migrations/           STAYS EMPTY. Migrations live in modules.
     │
     ├── public/                   index.php, plus built assets
+    ├── media/                    ALL UPLOADED FILES. One master folder.
+    │                             Namespaced by MEDIA_PREFIX from .env.
     ├── resources/                STAYS EMPTY. Views live in frontend/.
     │
     ├── tests/
@@ -141,7 +143,7 @@ THE RULE THIS SHAPE ENCODES
         │   ├── api/              typed fetchers for /api/v1
         │   └── components/
         ├── index.html
-        └── vite.config.ts        builds to public/admin
+        └── vite.config.ts        builds to public/build/admin
 
 HOW THE TWO ARE WIRED
 
@@ -153,7 +155,8 @@ HOW THE TWO ARE WIRED
                  shadow the API or a storefront URL:
                      Route::view('/admin/{any?}', 'admin')
                           ->where('any', '.*');
-                 That view loads the bundle built into public/admin.
+                 That view loads the bundle built into public/build/admin
+                 (not public/admin — that path would steal the /admin URL).
                  Client-side routing then takes over.
 
     Data         Blade controllers call module contracts in-process.

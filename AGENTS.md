@@ -2,13 +2,14 @@
 
 ## What this project is
 
-An e-commerce solution for small to mid-sized businesses, launching for small
-businesses first.
+A **modular monolith host** you can copy for any product. Domain code does not
+belong in the host. Put the product name and capabilities in
+`doc/Features-list.txt`, then add modules one at a time.
 
-**Current stage: architecture only. No application code exists yet.**
+**Current stage: host template. No modules yet.**
 
 **Stack:** Laravel (PHP) for the API, PostgreSQL for the database. Two front
-ends: Blade server-rendered for the public storefront with React islands, and
+ends: Blade server-rendered for the public site with React islands, and
 a React SPA (Vite + TanStack Query/Router) for the admin behind a login. See
 `doc/architecture-map.txt` and `doc/tech-stack.txt`.
 

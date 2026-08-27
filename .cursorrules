@@ -1,6 +1,6 @@
-E-commerce for small to mid-sized businesses.
-STAGE: architecture only. No application code yet.
-STACK: Laravel (PHP) API, PostgreSQL, Blade storefront + React admin.
+Modular monolith host. Product lives in modules/ and doc/Features-list.txt, not here.
+STAGE: host template. No modules yet.
+STACK: Laravel (PHP) API, PostgreSQL, Blade public site + React admin.
        Versions: doc/tech-stack.txt. Shape: doc/architecture-map.txt.
 
 ===============================================================================

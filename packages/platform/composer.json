@@ -1,0 +1,23 @@
+{
+    "name": "packages/platform",
+    "description": "Host machinery: event bus, outbox worker, problem details. No domain.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "illuminate/support": "^13.0",
+        "packages/shared": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Platform\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Platform\\PlatformServiceProvider"
+            ]
+        }
+    }
+}
