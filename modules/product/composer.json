@@ -1,0 +1,31 @@
+{
+    "name": "modules/product",
+    "description": "Product module — catalog, variants, categories, attributes, media.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "illuminate/support": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/routing": "^13.0",
+        "packages/shared": "*",
+        "packages/platform": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Product\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\Product\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Modules\\Product\\ProductServiceProvider"
+            ]
+        }
+    }
+}

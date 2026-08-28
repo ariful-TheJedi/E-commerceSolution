@@ -6,7 +6,10 @@ A **modular monolith host** you can copy for any product. Domain code does not
 belong in the host. Put the product name and capabilities in
 `doc/Features-list.txt`, then add modules one at a time.
 
-**Current stage: host template. No modules yet.**
+**Current stage:** **Product** — requirements analyzed (R1); skeleton up (R2).
+Wall test (R3) not run yet. Features F1–F10 and A1–A5 still open.
+One feature / use case per turn. Always flip checkboxes in
+`doc/Features-list.txt` **and** this file when work completes.
 
 **Stack:** Laravel (PHP) for the API, PostgreSQL for the database. Two front
 ends: Blade server-rendered for the public site with React islands, and
@@ -22,21 +25,97 @@ a React SPA (Vite + TanStack Query/Router) for the admin behind a login. See
 | `doc/module-guideline.txt` | How to build or change a module, and the done checklists. |
 | `doc/dev-workflow.txt` | How we build with an AI assistant: six stages, prompts, tests, review. |
 | `doc/tech-stack.txt` | Versions, tooling, and what is not decided yet. |
+| `doc/Features-list.txt` | **This product:** modules, per-module features, status, out of scope. Authoritative for scope. |
 
 Read the relevant document before proposing architecture, database, API, or
 testing decisions. Do not re-derive answers that are already written down.
+When the developer names a module or feature, update **both**
+`doc/Features-list.txt` and `AGENTS.md` in that turn. Never invent modules
+or features.
 
 ## Keep these topics separate
 
 This is the mistake to avoid in this repo. Three distinct conversations:
 
 1. **Architecture** — the abstract shape of the system. Decided; see `doc/architecture-map.txt`.
-2. **Modules** — which capabilities exist. **Not decided yet.**
-3. **Features and requirements** — what each capability does. Not decided yet.
+2. **Modules** — which capabilities exist. Listed in `doc/Features-list.txt` (partially decided).
+3. **Features and requirements** — what each capability does. Listed under each module in `doc/Features-list.txt`.
 
-When asked about one, do not answer with another. In particular: architecture
-documentation must not name modules or features. Use placeholder names
-(Module A, schema `alpha`, table `widget`) as the existing documents do.
+When asked about one, do not answer with another. Architecture documentation
+must not name real modules or features — use placeholders there (Module A,
+schema `alpha`, table `widget`). Product scope lives only in
+`doc/Features-list.txt` (and the summary below, which must stay in sync).
+
+## Product module
+
+Folder: `modules/product` · Schema: `product` · Status: in progress
+
+**Progress checklist**
+
+| Id | Stage | Status |
+| --- | --- | --- |
+| R1 | Requirement analysis (Core / DB / FR / NFR / Out of scope) | done |
+| R2 | Skeleton (package, provider, layers, Deptrac, empty tests) | done |
+| R3 | Schema wall test passes against real Postgres | open |
+| R4 | Features F1–F10 complete | open |
+| R5 | Architectural boundaries A1–A5 verified | open |
+
+Source of truth for scope: `doc/Features-list.txt` (if this section and that
+file disagree, **Features-list wins**).
+
+**Responsibility:** Owns sellable catalog data — products, variants,
+categories, attributes, and media. Nothing else.
+
+**Public surface**
+- REST API front door — format/transport only; no business rules in controllers
+- `ProductApi` contract for other modules (DTOs only, never Eloquent) —
+  e.g. `isActive(string $id): bool`
+- Events: `ProductUpdated` written to `platform.outbox` in the same DB
+  transaction as the state change
+
+**Initial tables (schema `product`)**
+- `products` — id, title, slug, status, created_at
+- `product_variants` — id, product_id, sku, price, compare_at
+- `categories` — id, name, parent_id, slug
+- `attributes` — id, name, type
+- `product_images` — id, product_id, image_url, is_thumbnail
+
+**Architectural boundaries (must hold)**
+
+| Id | Requirement |
+| --- | --- |
+| A1 | REST API front door — format/transport only; no business rules |
+| A2 | Schema sealed (`product.*`) — no cross-schema FKs or joins in |
+| A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn |
+| A4 | Storefront reads via optimized batch queries (under 100ms target) |
+| A5 | `ProductApi` contract; DTOs only |
+
+**Features**
+
+| Id | Feature |
+| --- | --- |
+| F1 | Product lifecycle — create, update, draft / active / archived; status controls storefront visibility |
+| F2 | Flexible pricing — base price, compare-at / sale, cost of goods, tax flags |
+| F3 | Product types — physical (shipping) and digital (secure file delivery) |
+| F4 | Multi-option variants — options, unique SKU, barcode, per-variant pricing |
+| F5 | Custom attributes — reusable specs; assign to products / variants |
+| F6 | Media gallery — upload, primary thumbnail, reorder, map to variants |
+| F7 | Hierarchical categories — multi-level tree; product in multiple categories |
+| F8 | Tags — flexible grouping alongside categories |
+| F9 | SEO & URL — slug, meta title/description, search indexing flags |
+| F10 | Cross-selling — related, alternatives, frequently bought together |
+
+**Out of scope for the Product module** (do not implement here)
+
+| Belongs in | Do not put in Product |
+| --- | --- |
+| Inventory | Stock counts, warehouses, reservations |
+| Promotions / Orders | Cart promo codes, checkout, payments |
+| Customer Reviews | Star ratings, reviews, moderation |
+
+### Backlog modules (named only — no feature lists yet)
+
+Inventory · Promotions · Orders · Customer Reviews
 
 ## The architecture — decided, do not re-open
 
@@ -208,5 +287,8 @@ Strategy and how-to in `doc/architecture-map.txt` section 10 and
 - Answer the question that was asked. Do not expand the scope.
 - Plain language over jargon. Short over long.
 - Do not invent modules, features, or requirements that have not been decided.
+  Scope is only what appears in `doc/Features-list.txt` (mirrored in this file).
+- When scope changes: update `doc/Features-list.txt` **and** `AGENTS.md` together.
+- One active module at a time; one feature / use case per turn.
 - If a request conflicts with a rule above, say so and explain the cost
   rather than quietly complying.

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "69a179dd618483678048fa5f4b00fbea",
+    "content-hash": "48c4b8944c7c1123a7c88f712557460d",
     "packages": [
         {
             "name": "brick/math",
@@ -2028,6 +2028,48 @@
                 }
             ],
             "time": "2026-03-08T20:05:35+00:00"
+        },
+        {
+            "name": "modules/product",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "./modules/product",
+                "reference": "146349d867a1d2fd8f1cdab6051fc23dffb2f782"
+            },
+            "require": {
+                "illuminate/database": "^13.0",
+                "illuminate/routing": "^13.0",
+                "illuminate/support": "^13.0",
+                "packages/platform": "*",
+                "packages/shared": "*",
+                "php": "^8.3"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Modules\\Product\\ProductServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Modules\\Product\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Modules\\Product\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Product module — catalog, variants, categories, attributes, media.",
+            "transport-options": {
+                "relative": true
+            }
         },
         {
             "name": "monolog/monolog",
@@ -10319,6 +10361,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
+        "modules/product": 20,
         "packages/platform": 20,
         "packages/shared": 20
     },

@@ -1,3 +1,136 @@
-# Features list
+===============================================================================
+                    M O D U L E   &   F E A T U R E   L I S T
+===============================================================================
+What THIS product does. Not architecture. Not how to build a module.
 
-(empty — to be filled in later)
+  Architecture shape  →  doc/architecture-map.txt
+  How to build        →  doc/module-guideline.txt, doc/dev-workflow.txt
+  What to build       →  THIS FILE
+
+The developer owns this list. The agent never invents modules or features.
+When the developer names a module or feature, the agent updates THIS FILE
+before (or with) any code change.
+
+
+-------------------------------------------------------------------------------
+HOW TO USE
+-------------------------------------------------------------------------------
+1. Developer lists modules and their features (chat, or edits this file).
+2. Agent writes them here under MODULES — status starts as [ ].
+3. One active module at a time. One feature / use case per turn.
+4. Mark status as work moves (agent MUST flip these in the same turn
+   as the work — also mirror in AGENTS.md):
+
+       [ ]  planned
+       [~]  in progress
+       [x]  done
+       [-]  parked / deferred
+
+5. Each module has a Progress checklist (require → skeleton → wall →
+   features). Flip those boxes when that stage finishes.
+6. Do not start the next module until the current one's list is done
+   (or the developer parks remaining items).
+
+
+-------------------------------------------------------------------------------
+STATUS
+-------------------------------------------------------------------------------
+  Stage:           Product — requirements analyzed; skeleton up; wall test
+                   not run (no Postgres yet); features F1–F10 not started
+  Active module:   Product
+  Last updated:    2026-08-28
+
+
+-------------------------------------------------------------------------------
+MODULES
+-------------------------------------------------------------------------------
+
+### 1. Product
+Schema:   product
+Folder:   modules/product
+Status:   [~] in progress
+Notes:    Core product / catalog management. Owns product.* only.
+          Storefront + React admin consume a pure REST API (no business
+          decisions in the HTTP front door). Other modules use ProductApi
+          (DTOs only — never Eloquent). State changes write ProductUpdated
+          to platform.outbox in the same DB transaction. Public read paths
+          use batch-shaped queries (target latency under 100ms).
+
+    Progress checklist
+      [x] R1  Requirement analysis (Core / DB / FR / NFR / Out of scope)
+      [x] R2  Skeleton (package, provider, layers, Deptrac, empty tests)
+      [ ] R3  Schema wall test passes against real Postgres
+      [ ] R4  Features F1–F10 complete
+      [ ] R5  Architectural boundaries A1–A5 verified in code + tests
+
+    Tables (owned — initial)
+      products           main aggregate — id, title, slug, status, created_at
+      product_variants   sellable units — id, product_id, sku, price, compare_at
+      categories         hierarchy — id, name, parent_id, slug
+      attributes         specification types — id, name, type
+      product_images     gallery — id, product_id, image_url, is_thumbnail
+      (further tables as features require — additive only)
+
+    Architectural boundaries (must hold)
+      [ ] A1  REST API front door — format/transport only; no business rules
+      [ ] A2  Schema sealed (product.*) — no cross-schema FKs or joins in
+      [ ] A3  State changes emit ProductUpdated to platform.outbox, same txn
+      [ ] A4  Storefront reads via optimized batch queries (<100ms target)
+      [ ] A5  ProductApi contract — e.g. isActive(string $id): bool; DTOs only
+
+    Features — Core product management
+      [ ] F1  Product lifecycle — create, update, draft / active (publish) /
+              archived; status controls storefront visibility
+      [ ] F2  Flexible pricing — base price, compare-at / sale price, cost
+              of goods, tax flags
+      [ ] F3  Product types — physical (shipping) and digital (secure file
+              delivery)
+
+    Features — Variations, attributes & media
+      [ ] F4  Multi-option variants — options (e.g. size, color, capacity),
+              unique SKU per variant, barcode, per-variant pricing
+      [ ] F5  Custom attributes — global reusable specs (e.g. material,
+              weight, warranty, dimensions); assign to products / variants
+      [ ] F6  Media gallery — upload sets, primary thumbnail, reorder,
+              map images to specific variants
+
+    Features — Organization, SEO & marketing
+      [ ] F7  Hierarchical categories — multi-level tree (e.g. Electronics >
+              Computers > Laptops); assign a product to multiple categories
+      [ ] F8  Tags — flexible grouping tags alongside categories
+      [ ] F9  SEO & URL — custom slug, meta title, meta description, search
+              indexing flags
+      [ ] F10 Cross-selling — related items, alternatives, frequently bought
+               together
+
+    Explicitly OUT OF SCOPE for this module (do not implement here)
+      [-] Stock counts, warehouses, reservations     → Inventory module
+      [-] Cart promo codes, checkout, payments       → Promotions / Orders
+      [-] Star ratings, reviews, moderation          → Customer Reviews
+
+
+-------------------------------------------------------------------------------
+BACKLOG / LATER
+-------------------------------------------------------------------------------
+Named as other modules in Product out-of-scope notes — not defined yet.
+Add full feature lists when the developer provides them.
+
+  [ ] Inventory
+  [ ] Promotions
+  [ ] Orders
+  [ ] Customer Reviews
+
+
+-------------------------------------------------------------------------------
+CHANGE LOG
+-------------------------------------------------------------------------------
+  2026-08-28  Added module Catalog (schema product) with F1–F10, A1–A5,
+              initial tables, and out-of-scope boundaries. Status: planned.
+  2026-08-28  Renamed module Catalog → Product (folder modules/product).
+  2026-08-28  Product skeleton: package, provider, bootstrap SQL, DB
+              connections, Deptrac layers, empty tests, schema wall test.
+              Status: skeleton. Features still [ ].
+  2026-08-28  Requirement analysis delivered (sections 1–5). Progress
+              checklist added; marked R1 + R2 [x]. R3 wall test still [ ]
+              (no Postgres). F1–F10 and A1–A5 still [ ].
+

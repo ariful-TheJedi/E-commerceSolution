@@ -8,6 +8,7 @@
         "php": "^8.3",
         "laravel/framework": "^13.0",
         "laravel/tinker": "^3.0",
+        "modules/product": "@dev",
         "packages/platform": "@dev",
         "packages/shared": "@dev"
     },
@@ -24,6 +25,10 @@
         "pestphp/pest-plugin-laravel": "^4.0"
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "./modules/*"
+        },
         {
             "type": "path",
             "url": "./packages/*"

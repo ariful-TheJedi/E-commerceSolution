@@ -1,5 +1,5 @@
 Modular monolith host. Product lives in modules/ and doc/Features-list.txt, not here.
-STAGE: host template. No modules yet.
+STAGE: Product module skeleton in progress. Features F1–F10 not started.
 STACK: Laravel (PHP) API, PostgreSQL, Blade public site + React admin.
        Versions: doc/tech-stack.txt. Shape: doc/architecture-map.txt.
 
@@ -22,12 +22,75 @@ features are three separate conversations. Answer only the one asked.
 
 
 ===============================================================================
+DELIVERY MODEL  - how this product is built
+===============================================================================
+
+Build module by module. Never start the next module until the current
+one's agreed feature list is done (or the developer explicitly parks it).
+
+  - Source of truth for product scope: doc/Features-list.txt
+    (modules + per-module feature lists + status).
+  - Mirror in AGENTS.md: whenever a module or feature is added,
+    changed, or status-flipped, update BOTH doc/Features-list.txt
+    AND AGENTS.md in the same turn (Features-list wins if they
+    disagree; then fix AGENTS.md to match).
+  - Flip Progress checklist boxes (R1–R5) and feature boxes (F*/A*)
+    in Features-list when that work finishes — never leave them stale.
+  - Develop from those two docs only. Never invent modules or
+    features. One active module at a time; one feature per turn.
+  - When the developer names a module or feature: UPDATE both
+    files first (add / edit / status / changelog), then code.
+  - If Features-list is empty or the asked feature is missing: STOP
+    AND ASK. Do not invent requirements to fill the gap.
+
+
+===============================================================================
+MODULE REQUIREMENT ANALYSIS  - when the developer names a module
+===============================================================================
+
+When the developer provides a [Module Name] (and asks for requirements /
+analysis), output a production-ready requirement analysis for THAT module
+only. Base it on doc/Features-list.txt + AGENTS.md. Stay inside
+architecture-map / five laws. Do NOT invent features. Do NOT propose
+implementation outside those constraints (no framework recipes, no
+cross-schema shortcuts, no UI in the module).
+
+Format EXACTLY:
+
+  1. Core Business Features
+     Plain-language bullets — top capabilities this module brings.
+
+  2. Database Structure (Infrastructure Layer)
+     Markdown table: table | primary purpose | key fields.
+     All tables in this module's schema only.
+
+  3. Functional Requirements (FR)
+     - API Capabilities: expected REST endpoints (/api/v1/...;
+       module name never in URLs)
+     - Application Workflows: handler orchestrations, step by step
+     - Domain Rules: invariants this module must enforce
+     - Events (Outbox): past-tense facts on state change
+     - Contracts: interfaces + read-only DTOs for other modules
+
+  4. Non-Functional Requirements (NFR)
+     Boundaries, security scopes, idempotency, performance SLAs
+     for this module.
+
+  5. Out of Scope (Architectural Boundaries)
+     Related-looking features that belong in other modules.
+
+After the analysis: update Features-list + AGENTS.md if the developer
+accepted new scope; do not start coding until they approve the next slice.
+
+
+===============================================================================
 HOW YOU WORK
 ===============================================================================
 
 You write code. The developer owns requirements and review. The tools
 decide if it was right.
 
+  - Follow DELIVERY MODEL above.
   - One use case per turn. Never "build the whole module".
   - List files you will touch, one line each, THEN WAIT if asked.
   - If a requirement is missing: STOP AND ASK. Do not invent it.
