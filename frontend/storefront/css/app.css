@@ -1,3 +1,9 @@
+@import "tailwindcss";
+
+/* Blade + islands — scan for class names */
+@source "../views/**/*.blade.php";
+@source "../islands/**/*.{tsx,ts,jsx,js}";
+
 :root {
     --bg: #0e1014;
     --bg-raised: #161a21;
@@ -7,6 +13,152 @@
     --accent: #c9a36a;
     --font: "Segoe UI", system-ui, sans-serif;
 }
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.5;
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.shell {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 4rem;
+}
+
+.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.brand {
+    font-size: 0.8rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.nav {
+    display: flex;
+    gap: 1.25rem;
+    font-size: 0.9rem;
+}
+
+.hero {
+    padding: 2.75rem 0 2rem;
+}
+
+.kicker {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+h1 {
+    margin: 0 0 0.75rem;
+    font-size: clamp(1.8rem, 4vw, 2.4rem);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+}
+
+.lede {
+    margin: 0;
+    max-width: 36rem;
+    color: var(--muted);
+}
+
+.grid {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 2rem;
+}
+
+@media (min-width: 640px) {
+    .grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+.card {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.1rem 1.15rem;
+}
+
+.card h2 {
+    margin: 0 0 0.35rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.card p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.86em;
+}
+
+.rules {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+}
+
+.rules li {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr;
+    gap: 1rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.9rem;
+}
+
+.rules strong {
+    font-weight: 600;
+}
+
+.rules span {
+    color: var(--muted);
+}
+
+.foot {
+    margin-top: 2rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
 
 *,
 *::before,

@@ -6,7 +6,13 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { routeTree } from './routes/routeTree';
 
 const queryClient = new QueryClient();
-const router = createRouter({ routeTree, basepath: '/admin' });
+
+const router = createRouter({
+    routeTree,
+    basepath: '/admin',
+    defaultPreload: 'intent',
+    notFoundMode: 'fuzzy',
+});
 
 declare module '@tanstack/react-router' {
     interface Register {

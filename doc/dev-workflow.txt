@@ -204,7 +204,9 @@ When the plan is right, YOU paste:
         ├── Unit/
         └── Integration/
 
-    + database/bootstrap/          schema, owner role, app role, grants
+    + modules/<name>/database/bootstrap/  schema, owner role, app role, grants
+    + Persistence Migrations/Seeders/Factories  (empty until first slice)
+    + database/bootstrap/platform/        host schemas only
     + deptrac.yaml                 FIVE collectors, one per src/ folder
                                    NEVER a collector on src/.*
 
@@ -213,7 +215,10 @@ YOU paste:
     Follow folder-structure.txt for module <name>.
 
     Create ONLY the skeleton:
-      - bootstrap SQL: schema, owner role, app role, grants
+      - bootstrap SQL in modules/<name>/database/bootstrap/:
+        schema, owner role, app role, grants
+      - empty Persistence Migrations/, Seeders/, Factories/
+      - docs/: README, folder-structure, database, api
       - one Composer package, Contracts/ inside src/
       - connection in config/database.php
       - service provider, registered once

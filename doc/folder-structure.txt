@@ -36,8 +36,11 @@ later decision.
     │                             details, paging helpers
     │
     ├── database/
-    │   ├── bootstrap/            schemas, roles, grants
-    │   └── migrations/           STAYS EMPTY. Migrations live in modules.
+    │   ├── bootstrap/
+    │   │   └── platform/         host only — platform + reporting schemas
+    │   ├── migrations/           STAYS EMPTY. Migrations live in modules.
+    │   └── seeders/              host DatabaseSeeder only — calls module
+    │                             seeders; no domain seed data here.
     │
     ├── public/                   index.php, plus built assets
     ├── media/                    ALL UPLOADED FILES. One master folder.
@@ -60,8 +63,9 @@ later decision.
 
 Two directories are deliberately empty. `resources/` is empty because views
 moved to frontend/, and `database/migrations/` is empty because each module
-registers its own migration path from its service provider. If you find a
-file in either one, it is in the wrong place.
+owns its migrations, seeders, and factories. If you find domain DB files in
+the host `database/` folder (except `bootstrap/platform/`), they are in the
+wrong place.
 
 
 -------------------------------------------------------------------------------
@@ -73,6 +77,14 @@ package.
     modules/alpha/
     ├── composer.json                 name: modules/alpha
     │                                 psr-4: Modules\Alpha\ → src/
+    ├── database/                     THIS MODULE'S DB BOOTSTRAP ONLY
+    │   └── bootstrap/
+    │       └── schema.sql            schema, owner role, app role, grants
+    ├── docs/                         THIS MODULE'S DOCUMENTATION
+    │   ├── README.md                 index + status
+    │   ├── folder-structure.md       this module's tree
+    │   ├── database.md               schema, tables, relations
+    │   └── api.md                    HTTP routes, contracts, events
     ├── src/
     │   ├── AlphaServiceProvider.php  loads its routes and migrations
     │   │
@@ -101,10 +113,12 @@ package.
     │   │   └── Rules/
     │   │
     │   └── Infrastructure/
-    │       ├── Persistence/
+    │       ├── Persistence/          ALL TABLE DB CODE FOR THIS MODULE
     │       │   ├── Models/           ELOQUENT LIVES HERE ONLY
     │       │   ├── Repositories/     map models ↔ domain objects
-    │       │   └── Migrations/       this module's schema only
+    │       │   ├── Migrations/       this module's schema only
+    │       │   ├── Seeders/          this module's seed data only
+    │       │   └── Factories/        this module's model factories only
     │       ├── Adapters/             external providers, behind ports
     │       ├── ReadModels/           projections it maintains
     │       └── AlphaApiImpl.php      implements Contracts/AlphaApi
@@ -114,6 +128,11 @@ package.
         └── Integration/
 
     modules/beta/ is identical in shape.
+
+    Host database/migrations and domain seed/factory code NEVER appear
+    outside the owning module. Host database/bootstrap/platform/ is the
+    only host bootstrap; every module's schema SQL is under
+    modules/<name>/database/bootstrap/.
 
 THE RULE THIS SHAPE ENCODES
     Another module may reference `Modules\Alpha\Contracts\` and nothing else

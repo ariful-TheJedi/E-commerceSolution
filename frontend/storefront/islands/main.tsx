@@ -1,11 +1,11 @@
+import { mountProductDemoList } from './ProductDemoList';
+
 function mountIslands(): void {
     document.querySelectorAll<HTMLElement>('[data-island]').forEach((el) => {
         const name = el.dataset.island;
-        if (!name) {
-            return;
+        if (name === 'product-demo-list') {
+            mountProductDemoList(el);
         }
-        // Islands register here as they are added. None yet.
-        void name;
     });
 }
 

@@ -36,8 +36,13 @@ one's agreed feature list is done (or the developer explicitly parks it).
     disagree; then fix AGENTS.md to match).
   - Flip Progress checklist boxes (R1–R5) and feature boxes (F*/A*)
     in Features-list when that work finishes — never leave them stale.
-  - Develop from those two docs only. Never invent modules or
-    features. One active module at a time; one feature per turn.
+  - MODULE DOCS ARE MANDATORY: every module has modules/<name>/docs/
+    (README brief, folder-structure, database, api). Whenever you
+    change a module (code, schema, migration, route, contract, event,
+    feature status), UPDATE that module's docs in the SAME turn.
+    Stale module docs = incomplete work. Do not skip this.
+  - Develop from Features-list + AGENTS.md only. Never invent modules
+    or features. One active module at a time; one feature per turn.
   - When the developer names a module or feature: UPDATE both
     files first (add / edit / status / changelog), then code.
   - If Features-list is empty or the asked feature is missing: STOP

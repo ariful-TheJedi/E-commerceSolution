@@ -13,6 +13,7 @@
             <nav class="nav">
                 <a href="/">Public</a>
                 <a href="/admin">Admin</a>
+                <a href="/admin/products">Admin products</a>
             </nav>
         </header>
 
@@ -39,6 +40,33 @@
                 <p>All domain code in <code>modules/</code>. One schema each. Host stays thin.</p>
             </article>
         </div>
+
+        {{-- Blade → ProductApi (in-process). Visible without the React island. --}}
+        <section class="mt-8 rounded-lg border border-[var(--line)] bg-[var(--bg-raised)] p-4">
+            <p class="mb-1 text-xs uppercase tracking-[0.18em] text-[var(--accent)]">Product API (Blade)</p>
+            <h2 class="mb-2 text-base font-semibold">Factory demo products</h2>
+            <p class="mb-4 text-sm text-[var(--muted)]">
+                Rendered by Blade via <code>ProductApi::listActiveSummaries()</code> — not from the database yet.
+            </p>
+            <ul class="m-0 flex list-none flex-col gap-3 p-0">
+                @forelse ($products as $product)
+                    <li class="rounded-md border border-[var(--line)] px-3 py-3">
+                        <div class="flex items-baseline justify-between gap-3">
+                            <span class="font-medium">{{ $product->title }}</span>
+                            <span class="shrink-0 text-sm text-[var(--accent)]">
+                                {{ number_format($product->priceMinor / 100, 2) }} {{ $product->currency }}
+                            </span>
+                        </div>
+                        <p class="mt-1 text-sm text-[var(--muted)]">{{ $product->description }}</p>
+                        <p class="mt-1 text-xs text-[var(--muted)]">{{ $product->slug }}</p>
+                    </li>
+                @empty
+                    <li class="text-sm text-[var(--muted)]">No active products.</li>
+                @endforelse
+            </ul>
+        </section>
+
+        <div data-island="product-demo-list" class="mt-4"></div>
 
         <ul class="rules">
             <li><strong>One owner</strong><span>One module writes and migrates each table.</span></li>

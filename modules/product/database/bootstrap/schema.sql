@@ -1,4 +1,5 @@
 -- Product module schema, roles, grants.
+-- Lives IN the module: modules/product/database/bootstrap/schema.sql
 -- product_owner: migrations / DDL
 -- product_app:    runtime reads and writes; no DDL; no other schemas
 

@@ -67,6 +67,7 @@ packages/
   shared/            tiny kernel — ids, clock, money
   platform/          machinery — bus, media, no domain
 media/               all uploads  (subfolder = MEDIA_PREFIX)
-database/migrations/ stays empty — migrations live in modules
+database/migrations/ stays empty — migrations, seeders, and factories live in modules
+database/bootstrap/platform/ — host schemas only; each module owns modules/<name>/database/bootstrap/
 resources/           stays empty — views live in frontend/
 ```

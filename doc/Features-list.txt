@@ -28,17 +28,20 @@ HOW TO USE
 
 5. Each module has a Progress checklist (require → skeleton → wall →
    features). Flip those boxes when that stage finishes.
-6. Do not start the next module until the current one's list is done
+6. Each module has modules/<name>/docs/. When the module changes,
+   the agent updates those docs in the same turn (brief, folder
+   structure, database, api).
+7. Do not start the next module until the current one's list is done
    (or the developer parks remaining items).
 
 
 -------------------------------------------------------------------------------
 STATUS
 -------------------------------------------------------------------------------
-  Stage:           Product — requirements analyzed; skeleton up; wall test
-                   not run (no Postgres yet); features F1–F10 not started
+  Stage:           Product — dummy GET /api/v1/products + storefront island;
+                   wall test / F1 still open
   Active module:   Product
-  Last updated:    2026-08-28
+  Last updated:    2026-08-29
 
 
 -------------------------------------------------------------------------------
@@ -50,6 +53,11 @@ Schema:   product
 Folder:   modules/product
 Status:   [~] in progress
 Notes:    Core product / catalog management. Owns product.* only.
+          DB assets live in this module:
+            database/bootstrap/schema.sql
+            src/Infrastructure/Persistence/{Migrations,Seeders,Factories}
+          Module docs: modules/product/docs/
+            (folder-structure, database, api)
           Storefront + React admin consume a pure REST API (no business
           decisions in the HTTP front door). Other modules use ProductApi
           (DTOs only — never Eloquent). State changes write ProductUpdated
@@ -59,6 +67,7 @@ Notes:    Core product / catalog management. Owns product.* only.
     Progress checklist
       [x] R1  Requirement analysis (Core / DB / FR / NFR / Out of scope)
       [x] R2  Skeleton (package, provider, layers, Deptrac, empty tests)
+      [x] R2b Module docs (docs/README, folder-structure, database, api)
       [ ] R3  Schema wall test passes against real Postgres
       [ ] R4  Features F1–F10 complete
       [ ] R5  Architectural boundaries A1–A5 verified in code + tests
@@ -72,11 +81,13 @@ Notes:    Core product / catalog management. Owns product.* only.
       (further tables as features require — additive only)
 
     Architectural boundaries (must hold)
-      [ ] A1  REST API front door — format/transport only; no business rules
+      [~] A1  REST API front door — format/transport only; no business rules
+              (ListProductsController live; more routes with F1+)
       [ ] A2  Schema sealed (product.*) — no cross-schema FKs or joins in
       [ ] A3  State changes emit ProductUpdated to platform.outbox, same txn
       [ ] A4  Storefront reads via optimized batch queries (<100ms target)
-      [ ] A5  ProductApi contract — e.g. isActive(string $id): bool; DTOs only
+      [~] A5  ProductApi contract — isActive + listActiveSummaries; DTOs only
+              (in-memory stub — replace when F1 lands)
 
     Features — Core product management
       [ ] F1  Product lifecycle — create, update, draft / active (publish) /
@@ -133,4 +144,29 @@ CHANGE LOG
   2026-08-28  Requirement analysis delivered (sections 1–5). Progress
               checklist added; marked R1 + R2 [x]. R3 wall test still [ ]
               (no Postgres). F1–F10 and A1–A5 still [ ].
+  2026-08-29  Bootstrap SQL moved to per-owner folders:
+              database/bootstrap/platform/, database/bootstrap/product/.
+  2026-08-29  Product DB ownership clarified: bootstrap →
+              modules/product/database/bootstrap/; Migrations, Seeders,
+              Factories under Infrastructure/Persistence/. Host holds
+              platform bootstrap only.
+  2026-08-29  Added modules/product/docs/ (README, folder-structure,
+              database, api). Progress R2b [x].
+  2026-08-29  Expanded docs/README overall brief; detailed
+              folder-structure.md with full tree + layer map.
+  2026-08-29  Standing rule: any module change must update
+              modules/<name>/docs/ in the same turn.
+  2026-08-29  Dummy ProductApi + GET /api/v1/products + storefront
+              island ProductDemoList. A1/A5 [~]. F1 still [ ].
+  2026-08-29  Admin /admin/products demo page (TanStack Query → same API).
+  2026-08-29  Fix admin shell: Blade was parsing @vite in script URL
+              (500); escape @@vite/client + correct Vite base path.
+  2026-08-29  ProductFactory + richer DTO (description, price_minor,
+              currency); API/UI show factory-built demo products.
+  2026-08-29  Welcome Blade renders ProductApi products server-side;
+              admin shell copy + built assets; restart admin Vite.
+  2026-08-29  Fix admin Vite client URL: must be /build/admin/@vite/client
+              (base path); Blade keeps @vite inside PHP strings.
+  2026-08-29  Admin loads built assets by default (ADMIN_VITE opt-in);
+              removed flaky hot-admin dependency for /admin.
 

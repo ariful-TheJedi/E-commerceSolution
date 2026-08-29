@@ -1,3 +1,7 @@
+@import "tailwindcss";
+
+@source "./**/*.{tsx,ts,jsx,js,html}";
+
 :root {
     --bg: #0e1014;
     --bg-raised: #161a21;
@@ -7,6 +11,100 @@
     --accent: #c9a36a;
     --font: "Segoe UI", system-ui, sans-serif;
 }
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+}
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.frame {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+}
+
+.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.brand {
+    font-size: 0.8rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.nav {
+    display: flex;
+    gap: 1.25rem;
+    font-size: 0.9rem;
+}
+
+.panel {
+    max-width: 40rem;
+    padding: 2.5rem 1.5rem 4rem;
+}
+
+.kicker {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+h1 {
+    margin: 0 0 0.75rem;
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+}
+
+.lede {
+    margin: 0 0 1.5rem;
+    color: var(--muted);
+}
+
+code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.86em;
+}
+
+.note {
+    margin: 0;
+    padding: 1rem 1.1rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
 
 *,
 *::before,

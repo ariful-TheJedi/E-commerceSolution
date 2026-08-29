@@ -1,4 +1,4 @@
--- Host schemas only. Module schemas are created by the owning module.
+-- Host schemas only. Module schemas live in modules/<name>/database/bootstrap/.
 CREATE SCHEMA IF NOT EXISTS platform;
 CREATE SCHEMA IF NOT EXISTS reporting;
 

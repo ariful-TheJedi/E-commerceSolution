@@ -5,7 +5,9 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Wall test: product_app must not read another schema.
- * Requires Postgres with database/bootstrap applied (0000 + 0001).
+ * Requires Postgres with bootstrap applied:
+ *   database/bootstrap/platform/schema.sql
+ *   modules/product/database/bootstrap/schema.sql
  */
 it('refuses queries into another schema', function () {
     try {

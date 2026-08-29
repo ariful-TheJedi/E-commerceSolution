@@ -1,4 +1,10 @@
-import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
+import {
+    Link,
+    Outlet,
+    createRootRoute,
+    createRoute,
+} from '@tanstack/react-router';
+import { ProductDemoList } from '../components/ProductDemoList';
 
 function Shell() {
     return (
@@ -7,7 +13,12 @@ function Shell() {
                 <div className="brand">Admin</div>
                 <nav className="nav">
                     <a href="/">Public</a>
-                    <a href="/admin">Admin</a>
+                    <Link to="/" activeProps={{ className: 'underline' }}>
+                        Home
+                    </Link>
+                    <Link to="/products" activeProps={{ className: 'underline' }}>
+                        Products
+                    </Link>
                 </nav>
             </header>
             <Outlet />
@@ -19,14 +30,36 @@ function Home() {
     return (
         <main className="panel">
             <p className="kicker">Private surface</p>
-            <h1>No screens yet</h1>
+            <h1>Admin</h1>
             <p className="lede">
-                This SPA is the locked-down UI. It talks to <code>/api/v1</code> only.
-                Add routes here when a module publishes an endpoint worth a screen.
+                This SPA talks to <code>/api/v1</code> only. No business rules in React.
             </p>
             <p className="note">
-                Do not put business rules in React. A rule enforced only in the
-                frontend is not enforced.
+                Open <Link to="/products">Products</Link> for the Product API demo list.
+            </p>
+        </main>
+    );
+}
+
+function ProductsPage() {
+    return (
+        <main className="panel max-w-2xl">
+            <p className="kicker">Product module</p>
+            <h1>Products</h1>
+            <p className="lede">
+                Dummy screen wired to <code>GET /api/v1/products</code>.
+            </p>
+            <ProductDemoList />
+        </main>
+    );
+}
+
+function NotFound() {
+    return (
+        <main className="panel">
+            <h1>Not found</h1>
+            <p className="lede">
+                <Link to="/">Back to admin home</Link>
             </p>
         </main>
     );
@@ -34,6 +67,7 @@ function Home() {
 
 const rootRoute = createRootRoute({
     component: Shell,
+    notFoundComponent: NotFound,
 });
 
 const indexRoute = createRoute({
@@ -42,4 +76,10 @@ const indexRoute = createRoute({
     component: Home,
 });
 
-export const routeTree = rootRoute.addChildren([indexRoute]);
+const productsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/products',
+    component: ProductsPage,
+});
+
+export const routeTree = rootRoute.addChildren([indexRoute, productsRoute]);

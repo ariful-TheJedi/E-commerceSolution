@@ -128,9 +128,12 @@ BUILD TOOLING
     toolchain for both, even though the two surfaces are separate apps, with
     a vite.config.ts in each.
 
-STYLING - NOT DECIDED
-    No CSS framework or component library has been chosen. When one is,
-    it needs a decision record, because a UI kit is hard to leave.
+STYLING - Tailwind CSS
+    Tailwind CSS (v4) via the official Vite plugin on both surfaces:
+    storefront (`frontend/storefront/css/app.css`) and admin
+    (`frontend/admin/src/styles.css`). Utility-first; existing
+    component CSS in those files may remain alongside utilities.
+    No separate UI kit chosen yet.
 
     ► The rules for how each surface reaches the modules:
       architecture-map.txt section 7. Get those wrong and the module

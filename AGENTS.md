@@ -56,9 +56,12 @@ Folder: `modules/product` · Schema: `product` · Status: in progress
 | --- | --- | --- |
 | R1 | Requirement analysis (Core / DB / FR / NFR / Out of scope) | done |
 | R2 | Skeleton (package, provider, layers, Deptrac, empty tests) | done |
+| R2b | Module docs (`docs/` folder-structure, database, api) | done |
 | R3 | Schema wall test passes against real Postgres | open |
 | R4 | Features F1–F10 complete | open |
 | R5 | Architectural boundaries A1–A5 verified | open |
+
+Module documentation: `modules/product/docs/`.
 
 Source of truth for scope: `doc/Features-list.txt` (if this section and that
 file disagree, **Features-list wins**).
@@ -73,7 +76,9 @@ categories, attributes, and media. Nothing else.
 - Events: `ProductUpdated` written to `platform.outbox` in the same DB
   transaction as the state change
 
-**Initial tables (schema `product`)**
+**Initial tables (schema `product`)** — migrations/seeders/factories live in
+the module only (`Infrastructure/Persistence/`), bootstrap SQL in
+`modules/product/database/bootstrap/schema.sql`.
 - `products` — id, title, slug, status, created_at
 - `product_variants` — id, product_id, sku, price, compare_at
 - `categories` — id, name, parent_id, slug
@@ -84,11 +89,11 @@ categories, attributes, and media. Nothing else.
 
 | Id | Requirement |
 | --- | --- |
-| A1 | REST API front door — format/transport only; no business rules |
-| A2 | Schema sealed (`product.*`) — no cross-schema FKs or joins in |
-| A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn |
-| A4 | Storefront reads via optimized batch queries (under 100ms target) |
-| A5 | `ProductApi` contract; DTOs only |
+| A1 | REST API front door — format/transport only; no business rules | in progress (list endpoint) |
+| A2 | Schema sealed (`product.*`) — no cross-schema FKs or joins in | open |
+| A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn | open |
+| A4 | Storefront reads via optimized batch queries (under 100ms target) | open |
+| A5 | `ProductApi` contract; DTOs only | in progress (in-memory stub) |
 
 **Features**
 
@@ -289,6 +294,9 @@ Strategy and how-to in `doc/architecture-map.txt` section 10 and
 - Do not invent modules, features, or requirements that have not been decided.
   Scope is only what appears in `doc/Features-list.txt` (mirrored in this file).
 - When scope changes: update `doc/Features-list.txt` **and** `AGENTS.md` together.
+- When any module changes (code, schema, routes, contracts, features):
+  update that module's `modules/<name>/docs/` in the **same turn**
+  (README, folder-structure, database, api as applicable). Stale docs = not done.
 - One active module at a time; one feature / use case per turn.
 - If a request conflicts with a rule above, say so and explain the cost
   rather than quietly complying.
