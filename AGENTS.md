@@ -6,8 +6,9 @@ A **modular monolith host** you can copy for any product. Domain code does not
 belong in the host. Put the product name and capabilities in
 `doc/Features-list.txt`, then add modules one at a time.
 
-**Current stage:** **Product** — requirements analyzed (R1); skeleton up (R2).
-Wall test (R3) not run yet. Features F1–F10 and A1–A5 still open.
+**Current stage:** **Product** — requirements analyzed (R1); catalog list
+F1–F15 (WooCommerce small/mid). Folder emptied. Skeleton (R2) and module
+docs (R2b) to rebuild. Wall test (R3) not run yet. F1–F15 and A1–A5 open.
 One feature / use case per turn. Always flip checkboxes in
 `doc/Features-list.txt` **and** this file when work completes.
 
@@ -48,26 +49,28 @@ schema `alpha`, table `widget`). Product scope lives only in
 
 ## Product module
 
-Folder: `modules/product` · Schema: `product` · Status: in progress
+Folder: `modules/product` · Schema: `product` · Status: in progress (files wiped; rebuild next)
 
 **Progress checklist**
 
 | Id | Stage | Status |
 | --- | --- | --- |
 | R1 | Requirement analysis (Core / DB / FR / NFR / Out of scope) | done |
-| R2 | Skeleton (package, provider, layers, Deptrac, empty tests) | done |
-| R2b | Module docs (`docs/` folder-structure, database, api) | done |
+| R2 | Skeleton (package, provider, layers, Deptrac, empty tests) | open |
+| R2b | Module docs (`docs/` folder-structure, database, api) | open |
 | R3 | Schema wall test passes against real Postgres | open |
-| R4 | Features F1–F10 complete | open |
+| R4 | Features F1–F15 complete | open |
 | R5 | Architectural boundaries A1–A5 verified | open |
 
-Module documentation: `modules/product/docs/`.
+Module documentation: `modules/product/docs/features-list.txt`,
+`modules/product/docs/schema-design.txt`
+(README, folder-structure, database, api still open until R2b).
 
 Source of truth for scope: `doc/Features-list.txt` (if this section and that
 file disagree, **Features-list wins**).
 
 **Responsibility:** Owns sellable catalog data — products, variants,
-categories, attributes, and media. Nothing else.
+categories, attributes, media, merchandising links. Nothing else.
 
 **Public surface**
 - REST API front door — format/transport only; no business rules in controllers
@@ -76,47 +79,53 @@ categories, attributes, and media. Nothing else.
 - Events: `ProductUpdated` written to `platform.outbox` in the same DB
   transaction as the state change
 
-**Initial tables (schema `product`)** — migrations/seeders/factories live in
-the module only (`Infrastructure/Persistence/`), bootstrap SQL in
-`modules/product/database/bootstrap/schema.sql`.
-- `products` — id, title, slug, status, created_at
-- `product_variants` — id, product_id, sku, price, compare_at
-- `categories` — id, name, parent_id, slug
-- `attributes` — id, name, type
-- `product_images` — id, product_id, image_url, is_thumbnail
+**Initial tables (schema `product`)** — sketch in
+`modules/product/docs/schema-design.txt`. SQL later under
+`Infrastructure/Persistence/`. Platform: `packages/platform/.../Bootstrap/`.
+- `products` — listing (status, visibility, type, slug)
+- `product_variants` — sellable SKU (every simple product has one)
+- `categories`, `product_categories`
+- `attributes` + options / values
+- `product_media` (replaces the old `product_images` name in the full sketch)
 
 **Architectural boundaries (must hold)**
 
 | Id | Requirement |
 | --- | --- |
-| A1 | REST API front door — format/transport only; no business rules | in progress (list endpoint) |
+| A1 | REST API front door — format/transport only; no business rules | open |
 | A2 | Schema sealed (`product.*`) — no cross-schema FKs or joins in | open |
 | A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn | open |
 | A4 | Storefront reads via optimized batch queries (under 100ms target) | open |
-| A5 | `ProductApi` contract; DTOs only | in progress (in-memory stub) |
+| A5 | `ProductApi` contract; DTOs only | open |
 
-**Features**
+**Features** (full text: `modules/product/docs/features-list.txt`)
 
 | Id | Feature |
 | --- | --- |
-| F1 | Product lifecycle — create, update, draft / active / archived; status controls storefront visibility |
-| F2 | Flexible pricing — base price, compare-at / sale, cost of goods, tax flags |
-| F3 | Product types — physical (shipping) and digital (secure file delivery) |
-| F4 | Multi-option variants — options, unique SKU, barcode, per-variant pricing |
-| F5 | Custom attributes — reusable specs; assign to products / variants |
-| F6 | Media gallery — upload, primary thumbnail, reorder, map to variants |
-| F7 | Hierarchical categories — multi-level tree; product in multiple categories |
-| F8 | Tags — flexible grouping alongside categories |
-| F9 | SEO & URL — slug, meta title/description, search indexing flags |
-| F10 | Cross-selling — related, alternatives, frequently bought together |
+| F1 | Lifecycle Control — create, update, draft, publish, archive |
+| F2 | Identifiers & Details — title, short/long description, brand; SKU, barcode, GTIN, UPC, EAN, ISBN, MPN |
+| F3 | Pricing — base, compare-at/sale, sale start/end, cost, tax status/class |
+| F4 | Types — physical, virtual, downloadable, grouped, bundles/kits, affiliate |
+| F5 | Multi-option variants — SKU, barcode, price per combo, default variant |
+| F6 | Attributes — reusable specs, swatches, facet flags |
+| F7 | Media — gallery, thumbnail, reorder, variant map, downloads (limit/expiry) |
+| F8 | Categorization — nested trees, tags, manual or automated collections |
+| F9 | SEO — slugs, meta title/description, slug redirects |
+| F10 | Relationships — related, up-sell, cross-sell, frequently bought together |
+| F11 | Operations — admin list, duplicate, bulk edit, CSV import/export |
+| F12 | Catalog visibility — visible / catalog / search / hidden |
+| F13 | Featured flag |
+| F14 | Shipping catalog data — weight, dimensions, shipping class (no quotes) |
+| F15 | Sold individually — one per order (catalog flag) |
 
 **Out of scope for the Product module** (do not implement here)
 
 | Belongs in | Do not put in Product |
 | --- | --- |
-| Inventory | Stock counts, warehouses, reservations |
-| Promotions / Orders | Cart promo codes, checkout, payments |
-| Customer Reviews | Star ratings, reviews, moderation |
+| Inventory | Stock, warehouses, reservations, backorders |
+| Promotions | Coupons, campaigns, B2B price lists, bundle deals |
+| Orders | Cart, checkout, payments, tax rates, download entitlement |
+| Customer Reviews | Stars, reviews, Q&A |
 
 ### Backlog modules (named only — no feature lists yet)
 
@@ -298,5 +307,5 @@ Strategy and how-to in `doc/architecture-map.txt` section 10 and
   update that module's `modules/<name>/docs/` in the **same turn**
   (README, folder-structure, database, api as applicable). Stale docs = not done.
 - One active module at a time; one feature / use case per turn.
-- If a request conflicts with a rule above, say so and explain the cost
-  rather than quietly complying.
+- Session notes go in `agent-log.txt`, not `readme.txt`. `readme.txt` is
+  the developer's notebook; append answers there only when they ask.

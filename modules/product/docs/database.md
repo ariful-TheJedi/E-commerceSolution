@@ -1,64 +1,9 @@
-# Product — database schema and relations
+Schema: `product` on database `ecommercesolution`.
 
-**PostgreSQL schema:** `product`  
-**Bootstrap:** `modules/product/database/bootstrap/schema.sql`  
-**Runtime role:** `product_app` (DML only) · **DDL role:** `product_owner`  
-**Connection:** `product` in `config/database.php` (`search_path = product`)
+Postgres stores the name in lowercase (unquoted CREATE DATABASE).
+Source of columns: `database-design.txt` in this folder.
+SQL: `../src/Infrastructure/Persistence/Bootstrap/schema.sql`
 
-No foreign keys and no joins to other schemas. Cross-module links (if any later) are bare ids + comment, resolved via contracts.
+Roles: `product_owner` (DDL) · `product_app` (DML). No grants on other schemas.
 
----
-
-## Tables (initial — Features-list)
-
-| Table | Purpose | Key columns |
-| --- | --- | --- |
-| `products` | Product aggregate | `id` UUID, `title`, `slug`, `status`, `description`, `price_minor`, `currency`, `created_at` |
-| `product_variants` | Sellable units | `id`, `product_id`, `sku`, `price`, `compare_at` |
-| `categories` | Hierarchy | `id`, `name`, `parent_id`, `slug` |
-| `attributes` | Spec type definitions | `id`, `name`, `type` |
-| `product_images` | Gallery | `id`, `product_id`, `image_url`, `is_thumbnail` |
-
-Further tables (category pivot, attribute values, tags, relations) are **additive** when F5–F10 are implemented. Update this file when migrations land.
-
----
-
-## Relations (inside schema `product` only)
-
-```
-categories (self)
-  parent_id ──► categories.id          optional tree edge
-
-products
-  │
-  ├──◄── product_variants.product_id   1:N  variants
-  ├──◄── product_images.product_id     1:N  images
-  └── (later) category / tag / attribute / related-product links
-```
-
-| From | To | Cardinality | Constraint |
-| --- | --- | --- | --- |
-| `product_variants.product_id` | `products.id` | N:1 | FK inside `product` |
-| `product_images.product_id` | `products.id` | N:1 | FK inside `product` |
-| `categories.parent_id` | `categories.id` | N:1 | FK inside `product` (nullable root) |
-
-Money columns use integer minor units + currency (architecture standard) when pricing columns are added (F2/F4). Ids are UUIDv7. Times are `TIMESTAMPTZ` UTC.
-
----
-
-## Status values (domain)
-
-`products.status`: `draft` | `active` | `archived`  
-Only `active` is storefront-visible (F1).
-
----
-
-## Migrations / seeders / factories
-
-| Kind | Path |
-| --- | --- |
-| Migrations | `src/Infrastructure/Persistence/Migrations/` |
-| Seeders | `src/Infrastructure/Persistence/Seeders/` |
-| Factories | `src/Infrastructure/Persistence/Factories/` |
-
-*(Empty until the first feature slice creates them.)*
+Applied 2026-08-31: platform + reporting + product (22 tables).

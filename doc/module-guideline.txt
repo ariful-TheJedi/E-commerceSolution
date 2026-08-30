@@ -58,7 +58,7 @@ before you start the next.
 
     6  Register        one provider line in the host, the connection in
                        config/database.php, schema/roles in
-                       modules/<name>/database/bootstrap/, the Deptrac layers.
+                       Infrastructure/Persistence/Bootstrap/, the Deptrac layers.
 
 Step 1 with no step 4 is a working, tested rule with nowhere to store
 things. That is a good place to be after an hour. The reverse - a migration
@@ -89,7 +89,8 @@ and a model with no rule - is where modules go wrong.
     │                              │ Seeders/                           │
     │ Model factory                │ Infrastructure/Persistence/        │
     │                              │ Factories/                         │
-    │ Schema / roles / grants SQL  │ modules/<name>/database/bootstrap/ │
+    │ Schema / roles / grants SQL  │ Infrastructure/Persistence/        │
+    │                              │ Bootstrap/                         │
     │ An external provider call    │ Infrastructure/Adapters/           │
     │ Route, controller, resource  │ Api/                               │
     │ Interface others may call    │ Contracts/                         │
@@ -170,11 +171,11 @@ its own vocabulary and law 4 is already broken.
 Not done until every line is true.
 
     [ ] Schema, role and grants created in
-        modules/<name>/database/bootstrap/; the role has
+        Infrastructure/Persistence/Bootstrap/; the role has
         no grant on any other schema.
     [ ] Migrations, seeders, and factories live under
         Infrastructure/Persistence/ in this module — never in host
-        database/migrations or database/factories.
+        database/.
     [ ] Module docs exist under modules/<name>/docs/ (README,
         folder-structure, database, api) and stay in sync when
         schema or routes change.

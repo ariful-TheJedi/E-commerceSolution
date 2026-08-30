@@ -1,0 +1,518 @@
+===============================================================================
+                    D A T A B A S E   D E S I G N
+===============================================================================
+Schema:     product
+Module:     Product   (F1–F15, small/mid WooCommerce-capable catalog)
+SQL later:  modules/product/src/Infrastructure/Persistence/Bootstrap/schema.sql
+Sketch:     this file. Additive — not all tables land in the first slice.
+            Visual schema: scroll to BOTTOM, or open schema-diagram.md
+
+
+Conventions (all tables)
+  id              UUID PRIMARY KEY          UUIDv7
+  created_at      TIMESTAMPTZ NOT NULL      UTC, default now
+  updated_at      TIMESTAMPTZ NOT NULL      UTC
+  money           INTEGER minor units + CHAR(3) currency. Never float.
+  FKs             inside product.* only. No FK to platform or other schemas.
+  files           path TEXT only. Bytes live on the platform media disk.
+
+Not in this schema
+  stock, warehouses, reservations
+  coupons, customer prices
+  cart, orders, tax rates
+  reviews
+  shipping quotes
+  platform.outbox  (adapter writes it in the same txn; no FK)
+
+
+===============================================================================
+RELATIONSHIPS                         1 ──<  means one-to-many
+===============================================================================
+  brands 1 ──────────────< products
+  shipping_classes 1 ────< products                 nullable
+
+  products 1 ────────────< product_variants
+       │                        │
+       │   default_variant_id ──┘   set after the first variant exists
+       │
+       ├── 1 ──< product_options 1 ──< product_option_values
+       │                                      ▲
+       │         variant_option_values ───────┤
+       │                    │
+       │                    └── > product_variants
+       │
+       ├── M:N categories      product_categories
+       │         categories.parent_id → categories.id
+       ├── M:N tags            product_tags
+       ├── M:N collections     collection_products
+       ├── 1 ──< product_media           variant_id optional
+       ├── 1 ──< digital_files           variant_id optional
+       ├── 1 ──< product_components      as parent
+       └── M:M products        product_relations (from_id → to_id)
+
+  collections 1 ──< collection_rules
+  attributes 1 ──< attribute_options
+  attributes 1 ──< product_attribute_values ──> products
+                                           └──> product_variants optional
+
+  url_redirects     no FK (stores paths)
+
+
+===============================================================================
+TABLES AND COLUMNS
+===============================================================================
+
+-------------------------------------------------------------------------------
+brands                         reusable vendor
+-------------------------------------------------------------------------------
+  id              UUID PK
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+-------------------------------------------------------------------------------
+shipping_classes               catalog label only — no rates
+-------------------------------------------------------------------------------
+  id              UUID PK
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+-------------------------------------------------------------------------------
+products                       listing / parent. Not always the SKU.
+-------------------------------------------------------------------------------
+  id                    UUID PK
+  brand_id              UUID NULL           FK → brands.id
+  shipping_class_id     UUID NULL           FK → shipping_classes.id
+  default_variant_id    UUID NULL           FK → product_variants.id
+                                            SET after insert (avoid cycle)
+  type                  TEXT NOT NULL       physical | virtual | downloadable
+                                            | grouped | bundle | external
+  status                TEXT NOT NULL       draft | active | archived
+  visibility            TEXT NOT NULL       visible | catalog | search | hidden
+  featured              BOOLEAN NOT NULL    DEFAULT false
+  sold_individually     BOOLEAN NOT NULL    DEFAULT false
+  title                 TEXT NOT NULL
+  slug                  TEXT NOT NULL UNIQUE
+  short_description     TEXT NULL
+  description           TEXT NULL
+  external_url          TEXT NULL           affiliate / external type
+  tax_status            TEXT NOT NULL       taxable | none
+  tax_class             TEXT NULL           code only; rates elsewhere
+  weight_g              INTEGER NULL        grams; variant may override
+  length_mm             INTEGER NULL
+  width_mm              INTEGER NULL
+  height_mm             INTEGER NULL
+  meta_title            TEXT NULL
+  meta_description      TEXT NULL
+  search_indexable      BOOLEAN NOT NULL    DEFAULT true
+  created_at            TIMESTAMPTZ NOT NULL
+  updated_at            TIMESTAMPTZ NOT NULL
+
+  CHECK type, status, visibility, tax_status
+  INDEX (status, visibility), (brand_id), (slug)
+
+-------------------------------------------------------------------------------
+product_variants               sellable SKU. Simple product = one default row.
+-------------------------------------------------------------------------------
+  id                  UUID PK
+  product_id          UUID NOT NULL         FK → products.id  ON DELETE CASCADE
+  sku                 TEXT NOT NULL UNIQUE
+  barcode             TEXT NULL
+  gtin                TEXT NULL             UPC / EAN / ISBN / GTIN
+  mpn                 TEXT NULL
+  is_default          BOOLEAN NOT NULL      DEFAULT false
+  price_minor         INTEGER NOT NULL
+  compare_at_minor    INTEGER NULL          sale / compare-at display
+  cost_minor          INTEGER NULL          internal
+  currency            CHAR(3) NOT NULL
+  sale_starts_at      TIMESTAMPTZ NULL      UTC
+  sale_ends_at        TIMESTAMPTZ NULL
+  weight_g            INTEGER NULL          override product
+  length_mm           INTEGER NULL
+  width_mm            INTEGER NULL
+  height_mm           INTEGER NULL
+  created_at          TIMESTAMPTZ NOT NULL
+  updated_at          TIMESTAMPTZ NOT NULL
+
+  INDEX (product_id), (sku)
+  Domain: exactly one is_default = true per product that sells
+
+-------------------------------------------------------------------------------
+categories                     nested tree
+-------------------------------------------------------------------------------
+  id              UUID PK
+  parent_id       UUID NULL                 FK → categories.id
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  position        INTEGER NOT NULL          DEFAULT 0
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  INDEX (parent_id)
+
+-------------------------------------------------------------------------------
+product_categories             product M:N category
+-------------------------------------------------------------------------------
+  product_id      UUID NOT NULL             FK → products.id    ON DELETE CASCADE
+  category_id     UUID NOT NULL             FK → categories.id  ON DELETE CASCADE
+  is_canonical    BOOLEAN NOT NULL          DEFAULT false
+  position        INTEGER NOT NULL          DEFAULT 0
+  PRIMARY KEY (product_id, category_id)
+
+  Domain: one is_canonical = true per product
+
+-------------------------------------------------------------------------------
+tags
+-------------------------------------------------------------------------------
+  id              UUID PK
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+-------------------------------------------------------------------------------
+product_tags
+-------------------------------------------------------------------------------
+  product_id      UUID NOT NULL             FK → products.id  ON DELETE CASCADE
+  tag_id          UUID NOT NULL             FK → tags.id      ON DELETE CASCADE
+  PRIMARY KEY (product_id, tag_id)
+
+-------------------------------------------------------------------------------
+collections                    merchandised list (not the category tree)
+-------------------------------------------------------------------------------
+  id              UUID PK
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  kind            TEXT NOT NULL             manual | automatic
+  match           TEXT NULL                 all | any  (automatic)
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+-------------------------------------------------------------------------------
+collection_rules               automatic membership. No inventory fields.
+-------------------------------------------------------------------------------
+  id              UUID PK
+  collection_id   UUID NOT NULL             FK → collections.id  ON DELETE CASCADE
+  field           TEXT NOT NULL             type | tag | brand | attribute
+  operator        TEXT NOT NULL             eq | neq | in
+  value           TEXT NOT NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  INDEX (collection_id)
+
+-------------------------------------------------------------------------------
+collection_products            manual (and optional materialised automatic)
+-------------------------------------------------------------------------------
+  collection_id   UUID NOT NULL             FK → collections.id  ON DELETE CASCADE
+  product_id      UUID NOT NULL             FK → products.id     ON DELETE CASCADE
+  position        INTEGER NOT NULL          DEFAULT 0
+  PRIMARY KEY (collection_id, product_id)
+
+-------------------------------------------------------------------------------
+product_options                e.g. Color, Size — per product
+-------------------------------------------------------------------------------
+  id              UUID PK
+  product_id      UUID NOT NULL             FK → products.id  ON DELETE CASCADE
+  name            TEXT NOT NULL
+  position        INTEGER NOT NULL          DEFAULT 0
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  UNIQUE (product_id, name)
+  INDEX (product_id)
+
+-------------------------------------------------------------------------------
+product_option_values          e.g. Red, S — swatches here
+-------------------------------------------------------------------------------
+  id              UUID PK
+  option_id       UUID NOT NULL             FK → product_options.id  ON DELETE CASCADE
+  label           TEXT NOT NULL
+  slug            TEXT NOT NULL
+  position        INTEGER NOT NULL          DEFAULT 0
+  color_hex       TEXT NULL
+  image_path      TEXT NULL                 platform media path
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  UNIQUE (option_id, slug)
+  INDEX (option_id)
+
+-------------------------------------------------------------------------------
+variant_option_values          which value this SKU picked
+-------------------------------------------------------------------------------
+  variant_id          UUID NOT NULL         FK → product_variants.id      ON DELETE CASCADE
+  option_value_id     UUID NOT NULL         FK → product_option_values.id ON DELETE RESTRICT
+  PRIMARY KEY (variant_id, option_value_id)
+
+  Domain: one value per option per variant (via option_value → option)
+
+-------------------------------------------------------------------------------
+attributes                     reusable specs (Material, Warranty)
+-------------------------------------------------------------------------------
+  id              UUID PK
+  name            TEXT NOT NULL
+  slug            TEXT NOT NULL UNIQUE
+  data_type       TEXT NOT NULL             text | number | boolean | enum
+  filterable      BOOLEAN NOT NULL          DEFAULT false
+  sortable        BOOLEAN NOT NULL          DEFAULT false
+  visible_on_pdp  BOOLEAN NOT NULL          DEFAULT true
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+-------------------------------------------------------------------------------
+attribute_options              enum values + optional swatch
+-------------------------------------------------------------------------------
+  id              UUID PK
+  attribute_id    UUID NOT NULL             FK → attributes.id  ON DELETE CASCADE
+  label           TEXT NOT NULL
+  slug            TEXT NOT NULL
+  position        INTEGER NOT NULL          DEFAULT 0
+  color_hex       TEXT NULL
+  image_path      TEXT NULL
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  UNIQUE (attribute_id, slug)
+
+-------------------------------------------------------------------------------
+product_attribute_values       spec on a product or a variant
+-------------------------------------------------------------------------------
+  id                    UUID PK
+  product_id            UUID NOT NULL       FK → products.id  ON DELETE CASCADE
+  variant_id            UUID NULL           FK → product_variants.id
+                                            NULL = product-level
+  attribute_id          UUID NOT NULL       FK → attributes.id  ON DELETE CASCADE
+  value_text            TEXT NULL
+  attribute_option_id   UUID NULL           FK → attribute_options.id
+  created_at            TIMESTAMPTZ NOT NULL
+  updated_at            TIMESTAMPTZ NOT NULL
+
+  INDEX (product_id), (variant_id), (attribute_id)
+  Domain: enum uses attribute_option_id; others use value_text
+
+-------------------------------------------------------------------------------
+product_components             grouped parent or bundle/kit
+-------------------------------------------------------------------------------
+  id                  UUID PK
+  parent_product_id   UUID NOT NULL         FK → products.id  ON DELETE CASCADE
+  child_product_id    UUID NULL             FK → products.id
+  child_variant_id    UUID NULL             FK → product_variants.id
+  quantity            INTEGER NOT NULL      >= 1
+  kind                TEXT NOT NULL         grouped | bundle
+  created_at          TIMESTAMPTZ NOT NULL
+  updated_at          TIMESTAMPTZ NOT NULL
+
+  CHECK one of child_product_id / child_variant_id
+  INDEX (parent_product_id)
+
+-------------------------------------------------------------------------------
+product_media                  gallery. Path, not blob.
+-------------------------------------------------------------------------------
+  id              UUID PK
+  product_id      UUID NOT NULL             FK → products.id  ON DELETE CASCADE
+  variant_id      UUID NULL                 FK → product_variants.id
+                                            NULL = product gallery
+  kind            TEXT NOT NULL             image | video
+  path            TEXT NOT NULL
+  alt             TEXT NULL
+  position        INTEGER NOT NULL          DEFAULT 0
+  is_primary      BOOLEAN NOT NULL          DEFAULT false
+  created_at      TIMESTAMPTZ NOT NULL
+  updated_at      TIMESTAMPTZ NOT NULL
+
+  INDEX (product_id, position)
+  Domain: one is_primary = true per product
+
+-------------------------------------------------------------------------------
+digital_files                  downloadable attachment. Entitlement = Orders.
+-------------------------------------------------------------------------------
+  id                    UUID PK
+  product_id            UUID NOT NULL       FK → products.id  ON DELETE CASCADE
+  variant_id            UUID NULL           FK → product_variants.id
+  path                  TEXT NOT NULL
+  download_limit        INTEGER NULL        NULL = unlimited
+  expires_after_days    INTEGER NULL
+  created_at            TIMESTAMPTZ NOT NULL
+  updated_at            TIMESTAMPTZ NOT NULL
+
+  INDEX (product_id)
+
+-------------------------------------------------------------------------------
+product_relations              manual merchandising links
+-------------------------------------------------------------------------------
+  from_product_id   UUID NOT NULL           FK → products.id  ON DELETE CASCADE
+  to_product_id     UUID NOT NULL           FK → products.id  ON DELETE CASCADE
+  kind              TEXT NOT NULL           related | upsell | cross_sell | fbt
+  PRIMARY KEY (from_product_id, to_product_id, kind)
+
+  CHECK from_product_id <> to_product_id
+
+-------------------------------------------------------------------------------
+url_redirects                  slug change → 301. Additive, never rename in place.
+-------------------------------------------------------------------------------
+  id              UUID PK
+  from_path       TEXT NOT NULL UNIQUE
+  to_path         TEXT NOT NULL
+  created_at      TIMESTAMPTZ NOT NULL
+
+
+===============================================================================
+RULES
+===============================================================================
+  Every sellable SKU is product_variants.
+  A product with no options still has one default variant (Woo simple).
+  Grouped / bundle parents may have no purchasable variant of their own.
+  Duplicate copies the graph with new ids, slugs, and SKUs.
+  No quantity / warehouse / reservation columns.
+  First SQL slice: products + product_variants only, unless you say otherwise.
+
+
+===============================================================================
+SCHEMA DESIGN  (visual)                   scroll here to see the picture
+===============================================================================
+
+Legend
+  [ table ]     a table
+  1 ----< N     one row links to many rows
+  N >--< N      many-to-many (there is a join table in the middle)
+
+
+ONE SENTENCE
+  products = the page.  product_variants = the SKU you buy.
+  Everything else hangs off those two.
+
+
+------------------------------------------------------------------------------
+A. CORE  (start here)
+------------------------------------------------------------------------------
+
+  [ brands ]              [ shipping_classes ]
+       |                         |
+       | 0 or 1                  | 0 or 1
+       +-----------+-------------+
+                   |
+                   v
+          +------------------+
+          |    products      |     the listing (title, slug, draft/active)
+          +--------+---------+
+                   |
+                   | 1 product  ----<  N variants
+                   v
+          +------------------+
+          | product_variants |     the SKU (price, barcode)
+          +------------------+
+
+  Simple product:    1 products  +  1 variant  (is_default = true)
+  Shirt S/M/L:       1 products  +  3 variants
+
+
+------------------------------------------------------------------------------
+B. OPTIONS  (Size, Color on a variable product)
+------------------------------------------------------------------------------
+
+  products  1 ----< N  [ product_options ]          e.g. "Color"
+                            |
+                            | 1 ----< N
+                            v
+                   [ product_option_values ]        e.g. "Red", "Blue"
+                            |
+                            | picked by
+                            v
+                   [ variant_option_values ]
+                            |
+                            v
+                   product_variants                 Red/S, Blue/M, ...
+
+
+------------------------------------------------------------------------------
+C. ORGANIZE  (shop navigation)
+------------------------------------------------------------------------------
+
+  categories  (tree: parent_id points at another category)
+       N >--+
+            |   join: product_categories
+            +--< N  products     (one category marked canonical)
+
+  tags
+       N >--+
+            |   join: product_tags
+            +--< N  products
+
+  collections  1 ----< N  collection_rules     (automatic lists)
+       N >--+
+            |   join: collection_products
+            +--< N  products
+
+
+------------------------------------------------------------------------------
+D. MEDIA, SPECS, LINKS, KITS
+------------------------------------------------------------------------------
+
+  products  1 ----< N  [ product_media ]      photos (path, not the file)
+                |             |
+                |             +---- optional variant_id (this photo is for Red)
+                |
+                +----< N  [ digital_files ]   downloadable PDF/ZIP (path)
+
+  [ attributes ]  1 ----< N  [ attribute_options ]     e.g. Material = Cotton
+         |
+         +----< N  [ product_attribute_values ] ----> products
+                                              ----> variant (optional)
+
+  products  N >--< N  products
+            join: product_relations
+            kind = related | upsell | cross_sell | fbt
+
+  products (parent)  1 ----< N  [ product_components ] ----> child product
+                     kind = grouped | bundle                    or variant
+
+
+------------------------------------------------------------------------------
+E. WHOLE SCHEMA IN ONE VIEW
+------------------------------------------------------------------------------
+
+                    [ brands ]
+                        |
+  [ shipping_classes ]--+
+                        |
+                        v
+  +---------------------+----------------------------------------------+
+  |                     PRODUCTS                                        |
+  |  listing: title, slug, type, status, visibility                     |
+  +----------+-------------+-------------+-------------+---------------+
+             |             |             |             |
+             |1--<N        |N>--<N       |N>--<N       |1--<N
+             v             v             v             v
+   [ product_variants ]  [categories]  [ tags ]  [ collections ]
+             |            via join      via join    via join
+             |            product_     product_    collection_
+             |            categories    tags        products
+             |
+             |1--<N
+             v
+   [ product_options ]
+             |
+             v
+   [ product_option_values ] <---- [ variant_option_values ]
+                                          |
+                                          +----> product_variants
+
+  Also from PRODUCTS (all 1--<N unless noted):
+    product_media
+    digital_files
+    product_components  -->  other products / variants
+    product_attribute_values  -->  attributes --> attribute_options
+    product_relations  (N>--<N other products)
+    url_redirects  (no FK, just old path -> new path)
+
+
+A rendered picture of this schema is in this folder:
+
+  schema-diagram.md           mermaid (open preview)
+  product-schema-diagram.png  poster
+
+

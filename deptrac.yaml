@@ -29,28 +29,6 @@ deptrac:
           value: '#^Illuminate\\#'
         - type: classNameRegex
           value: '#^Symfony\\Component\\HttpFoundation\\#'
-    - name: ProductContracts
-      collectors:
-        - type: directory
-          value: modules/product/src/Contracts/.*
-    - name: ProductDomain
-      collectors:
-        - type: directory
-          value: modules/product/src/Domain/.*
-    - name: ProductApplication
-      collectors:
-        - type: directory
-          value: modules/product/src/Application/.*
-    - name: ProductInfrastructure
-      collectors:
-        - type: directory
-          value: modules/product/src/Infrastructure/.*
-        - type: classNameRegex
-          value: '#^Modules\\Product\\ProductServiceProvider$#'
-    - name: ProductApi
-      collectors:
-        - type: directory
-          value: modules/product/src/Api/.*
   ruleset:
     Shared: []
     Platform:
@@ -60,28 +38,6 @@ deptrac:
       - Shared
       - Platform
       - Laravel
-      - ProductContracts
     Frontend:
-      - Shared
-      - Laravel
-      - ProductContracts
-    ProductContracts:
-      - Shared
-    ProductDomain:
-      - Shared
-    ProductApplication:
-      - ProductDomain
-      - ProductContracts
-      - Shared
-    ProductInfrastructure:
-      - ProductDomain
-      - ProductApplication
-      - ProductContracts
-      - Shared
-      - Platform
-      - Laravel
-    ProductApi:
-      - ProductApplication
-      - ProductContracts
       - Shared
       - Laravel

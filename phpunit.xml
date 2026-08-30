@@ -14,9 +14,6 @@
         <testsuite name="System">
             <directory>tests/System</directory>
         </testsuite>
-        <testsuite name="Product">
-            <directory>modules/product/tests</directory>
-        </testsuite>
     </testsuites>
     <source>
         <include>

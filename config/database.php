@@ -101,14 +101,14 @@ return [
 
         /*
         | Product module — runtime role product_app, search_path product only.
-        | Migrations run as product_owner (product_owner connection).
+        | Migrations / bootstrap run as product_owner.
         */
         'product' => [
             'driver' => 'pgsql',
             'url' => env('PRODUCT_DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
-            'database' => env('DB_DATABASE', 'app'),
+            'database' => env('DB_DATABASE', 'ecommercesolution'),
             'username' => env('PRODUCT_DB_USERNAME', 'product_app'),
             'password' => env('PRODUCT_DB_PASSWORD', 'secret'),
             'charset' => env('DB_CHARSET', 'utf8'),
@@ -123,7 +123,7 @@ return [
             'url' => env('PRODUCT_OWNER_DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
-            'database' => env('DB_DATABASE', 'app'),
+            'database' => env('DB_DATABASE', 'ecommercesolution'),
             'username' => env('PRODUCT_OWNER_DB_USERNAME', 'product_owner'),
             'password' => env('PRODUCT_OWNER_DB_PASSWORD', 'secret'),
             'charset' => env('DB_CHARSET', 'utf8'),

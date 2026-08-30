@@ -1,0 +1,38 @@
+Agent session log. Not scope. Not architecture.
+Scope:     doc/Features-list.txt
+Your notes: readme.txt
+This file: what the agent did, dated, newest last.
+
+
+2026-08-30  Product module files wiped. modules/product empty folders only.
+            Host unwired. Still the active module.
+
+2026-08-30  Added modules/product/docs/features-list.txt
+
+2026-08-30  Catalog list expanded (research), flattened to [ ], then
+            rewritten to developer F1–F11, then F1–F15 for small/mid
+            WooCommerce catalog. Stock / coupons / checkout / reviews
+            stay other modules.
+
+2026-08-30  Schema sketch: modules/product/docs/schema-design.txt
+            (tables + FKs, not SQL). Host doc/ stays placeholder-only.
+
+2026-08-30  Agent log moved here from readme.txt. readme.txt is the
+            developer's notebook only.
+
+2026-08-30  Do not update AGENTS.md every turn. Mirror Features-list
+            there once when the Product module is complete (R4/R5).
+            Until then: Features-list + module docs + this log.
+
+2026-08-30  doc/database-design.txt — Product schema tables, columns,
+            FKs. SQL not written. First slice still products + variants.
+
+2026-08-30  Database design lives in the module only:
+            modules/product/docs/database-design.txt
+            Host doc/database-design.txt removed. AGENTS.md not updated.
+
+2026-08-31  Product schema picture: modules/product/docs/schema-diagram.md
+            and product-schema-diagram.png
+
+2026-08-31  Created DB ecommercesolution. Applied platform + product
+            schema (22 tables). Postgres lowercased the name.

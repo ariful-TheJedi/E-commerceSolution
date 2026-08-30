@@ -1,0 +1,30 @@
+Core Identity & Pricing
+[ ] Lifecycle Control: Manage product states by creating, updating, drafting, publishing, and archiving core records.
+[ ] Catalog visibility: Show in catalog and search, catalog only, search only, or hidden (WooCommerce visibility).
+[ ] Featured: Flag a product for home and merchandising lists.
+[ ] Identifiers & Details: Titles, short and long descriptions, brands, and identifiers including SKU, barcode, GTIN, UPC, EAN, ISBN, and MPN.
+[ ] Pricing Structure: Base retail price, compare-at / sale price, sale start and end (UTC), internal cost, tax status and tax class.
+[ ] Product Types: Physical (ships), virtual (no shipping), downloadable (files), grouped, bundles / kits, and affiliate / external URLs.
+[ ] Shipping catalog data: Weight, length / width / height, and shipping class. No rate quotes here.
+[ ] Sold individually: Limit to one of this product per order (catalog flag, not stock).
+
+Variations & Media
+[ ] Multi-Option Variants: Individual SKU, barcode, and price for every option combination, plus a default variant.
+[ ] Attributes & Specifications: Reusable specs, visual swatches, and facet flags for storefront filters.
+[ ] Media Management: Image sets, primary thumbnail, reorder, map photos to variants, digital downloads with download limit and expiry.
+
+Organization, SEO & Operations
+[ ] Categorization: Nested category trees, tags, and manual or automated collections.
+[ ] SEO Optimization: URL slugs, meta titles and descriptions, and slug redirects.
+[ ] Relationships: Related items, up-sells, cross-sells, and frequently bought together (manual links).
+[ ] Operations: Admin list, duplicate product, bulk edit, and CSV import / export.
+
+Out of scope
+[-] Stock, warehouses, reservations, backorders
+[-] Coupons, sale campaigns, customer prices
+[-] Cart, checkout, payments, tax rates
+[-] Download entitlement after purchase
+[-] Reviews
+[-] Shipping quotes
+[-] Search engine
+[-] Translations

@@ -38,10 +38,10 @@ HOW TO USE
 -------------------------------------------------------------------------------
 STATUS
 -------------------------------------------------------------------------------
-  Stage:           Product — dummy GET /api/v1/products + storefront island;
-                   wall test / F1 still open
+  Stage:           Product — F1–F15 WooCommerce-capable small/mid catalog.
+                   Folder empty; rebuild skeleton next. R1 done.
   Active module:   Product
-  Last updated:    2026-08-29
+  Last updated:    2026-08-30
 
 
 -------------------------------------------------------------------------------
@@ -52,72 +52,84 @@ MODULES
 Schema:   product
 Folder:   modules/product
 Status:   [~] in progress
-Notes:    Core product / catalog management. Owns product.* only.
-          DB assets live in this module:
-            database/bootstrap/schema.sql
-            src/Infrastructure/Persistence/{Migrations,Seeders,Factories}
-          Module docs: modules/product/docs/
-            (folder-structure, database, api)
-          Storefront + React admin consume a pure REST API (no business
-          decisions in the HTTP front door). Other modules use ProductApi
-          (DTOs only — never Eloquent). State changes write ProductUpdated
-          to platform.outbox in the same DB transaction. Public read paths
-          use batch-shaped queries (target latency under 100ms).
+Notes:    Catalog / PIM for sellable products. Owns product.* only.
+          Working list: modules/product/docs/features-list.txt
+          Folder emptied 2026-08-30; rebuild skeleton (R2) then docs
+          (R2b) before any feature slice. One feature per turn, F1 first.
+          DB assets in Infrastructure/Persistence/ (Bootstrap, Migrations,
+          Seeders, Factories). REST is format only. Other modules use
+          ProductApi (DTOs). ProductUpdated → platform.outbox, same txn.
 
     Progress checklist
       [x] R1  Requirement analysis (Core / DB / FR / NFR / Out of scope)
-      [x] R2  Skeleton (package, provider, layers, Deptrac, empty tests)
-      [x] R2b Module docs (docs/README, folder-structure, database, api)
+      [ ] R2  Skeleton (package, provider, layers, Deptrac, empty tests)
+      [ ] R2b Module docs (docs/README, folder-structure, database, api)
       [ ] R3  Schema wall test passes against real Postgres
-      [ ] R4  Features F1–F10 complete
+      [ ] R4  Features F1–F15 complete
       [ ] R5  Architectural boundaries A1–A5 verified in code + tests
 
-    Tables (owned — initial)
-      products           main aggregate — id, title, slug, status, created_at
-      product_variants   sellable units — id, product_id, sku, price, compare_at
+    Tables (owned — design: modules/product/docs/database-design.txt
+            columns first; visual schema at the bottom)
+      Initial (first slices)
+      products           listing — id, title, slug, status, created_at
+      product_variants   sellable SKU — id, product_id, sku, price, compare_at
       categories         hierarchy — id, name, parent_id, slug
       attributes         specification types — id, name, type
       product_images     gallery — id, product_id, image_url, is_thumbnail
-      (further tables as features require — additive only)
+                         (full design uses product_media)
+
+      Also in modules/product/docs/database-design.txt (as features land)
+      brands, shipping_classes, product_categories, tags, product_tags,
+      collections, collection_rules, collection_products,
+      product_options, product_option_values, variant_option_values,
+      attribute_options, product_attribute_values, product_components,
+      product_media, digital_files, product_relations, url_redirects
 
     Architectural boundaries (must hold)
-      [~] A1  REST API front door — format/transport only; no business rules
-              (ListProductsController live; more routes with F1+)
+      [ ] A1  REST API front door — format/transport only; no business rules
       [ ] A2  Schema sealed (product.*) — no cross-schema FKs or joins in
       [ ] A3  State changes emit ProductUpdated to platform.outbox, same txn
       [ ] A4  Storefront reads via optimized batch queries (<100ms target)
-      [~] A5  ProductApi contract — isActive + listActiveSummaries; DTOs only
-              (in-memory stub — replace when F1 lands)
+      [ ] A5  ProductApi contract — DTOs only
 
-    Features — Core product management
-      [ ] F1  Product lifecycle — create, update, draft / active (publish) /
-              archived; status controls storefront visibility
-      [ ] F2  Flexible pricing — base price, compare-at / sale price, cost
-              of goods, tax flags
-      [ ] F3  Product types — physical (shipping) and digital (secure file
-              delivery)
+    Features — Core Identity & Pricing
+      [ ] F1  Lifecycle Control: create, update, draft, publish, archive
+      [ ] F2  Identifiers & Details: titles, short and long descriptions,
+              brands; SKU, barcode, GTIN, UPC, EAN, ISBN, MPN
+      [ ] F3  Pricing Structure: base, compare-at / sale, sale start/end
+              (UTC), cost, tax status and tax class
+      [ ] F4  Product Types: physical, virtual (no shipping), downloadable,
+              grouped, bundles / kits, affiliate / external URLs
+      [ ] F12 Catalog visibility: visible, catalog-only, search-only, hidden
+      [ ] F13 Featured flag (home / merchandising)
+      [ ] F14 Shipping catalog data: weight, dimensions, shipping class
+              (no rate quotes)
+      [ ] F15 Sold individually (one per order — catalog flag)
 
-    Features — Variations, attributes & media
-      [ ] F4  Multi-option variants — options (e.g. size, color, capacity),
-              unique SKU per variant, barcode, per-variant pricing
-      [ ] F5  Custom attributes — global reusable specs (e.g. material,
-              weight, warranty, dimensions); assign to products / variants
-      [ ] F6  Media gallery — upload sets, primary thumbnail, reorder,
-              map images to specific variants
+    Features — Variations & Media
+      [ ] F5  Multi-Option Variants: SKU, barcode, price per combination,
+              default variant
+      [ ] F6  Attributes & Specifications: reusable specs, swatches, facet flags
+      [ ] F7  Media Management: galleries, thumbnail, reorder, map to variants,
+              digital downloads with limit and expiry
 
-    Features — Organization, SEO & marketing
-      [ ] F7  Hierarchical categories — multi-level tree (e.g. Electronics >
-              Computers > Laptops); assign a product to multiple categories
-      [ ] F8  Tags — flexible grouping tags alongside categories
-      [ ] F9  SEO & URL — custom slug, meta title, meta description, search
-              indexing flags
-      [ ] F10 Cross-selling — related items, alternatives, frequently bought
-               together
+    Features — Organization, SEO & Operations
+      [ ] F8  Categorization: nested category trees, tags, manual or
+              automated collections
+      [ ] F9  SEO Optimization: slugs, meta title/description, slug redirects
+      [ ] F10 Relationships: related, up-sell, cross-sell, frequently bought
+              together
+      [ ] F11 Operations: admin list, duplicate, bulk edit, CSV import/export
 
     Explicitly OUT OF SCOPE for this module (do not implement here)
-      [-] Stock counts, warehouses, reservations     → Inventory module
-      [-] Cart promo codes, checkout, payments       → Promotions / Orders
-      [-] Star ratings, reviews, moderation          → Customer Reviews
+      [-] Stock, warehouses, reservations, backorders     → Inventory
+      [-] Coupons, campaigns, B2B price lists, bundle deals → Promotions
+      [-] Cart, checkout, payments, tax rates, download
+          entitlement after purchase                      → Orders
+      [-] Stars, reviews, Q&A                             → Customer Reviews
+      [-] Shipping quotes, search engine, CMS, wishlists,
+          marketplace push, subscriptions, translations,
+          gift-card balances                              → later / other modules
 
 
 -------------------------------------------------------------------------------
@@ -169,4 +181,45 @@ CHANGE LOG
               (base path); Blade keeps @vite inside PHP strings.
   2026-08-29  Admin loads built assets by default (ADMIN_VITE opt-in);
               removed flaky hot-admin dependency for /admin.
+  2026-08-30  All database files live in Infrastructure/Persistence
+              (Bootstrap, Migrations, Seeders, Factories). Platform
+              schema SQL in packages/platform. Host database/ stays empty.
+  2026-08-30  Wiped every file inside modules/product. Host unwired
+              (composer, Deptrac, Pest, storefront, admin, DB connections).
+              Dummy API/UI removed. R2/R2b/A1/A5 reset to [ ]. R1 kept.
+              Product remains the active module — rebuild when asked.
+  2026-08-30  Added modules/product/docs/features-list.txt (Product
+              section only; doc/Features-list.txt still wins). R2b still [ ].
+  2026-08-30  Expanded Product catalog list to F1–F31 from Shopify /
+              Magento / WooCommerce / BigCommerce catalog surfaces.
+              Inventory, promotions, orders, reviews still out of scope.
+              R4 now F1–F31. Build F1 after R2/R2b.
+  2026-08-30  modules/product/docs/features-list.txt flattened to a
+              categorized [ ] list. Host ids F1–F31 unchanged.
+  2026-08-30  Product features rewritten to developer F1–F11 (three
+              groups: Core Identity & Pricing; Variations & Media;
+              Organization, SEO & Operations). R4 now F1–F11.
+  2026-08-30  Product list expanded for small/mid WooCommerce catalog
+              parity: visibility, featured, sale dates, weight/dims,
+              shipping class, virtual/grouped types, sold individually,
+              default variant, duplicate, up-sell/cross-sell, download
+              limit. Still F1–F15. Stock/coupons/checkout/reviews stay out.
+  2026-08-30  Added modules/product/docs/schema-design.txt — table list
+              and FKs for schema product (F1–F15). Not SQL yet.
+  2026-08-30  Full column list + relations: doc/database-design.txt
+              (schema product, F1–F15). Not SQL yet.
+  2026-08-30  Moved database design into the module:
+              modules/product/docs/database-design.txt
+              Removed host doc/database-design.txt.
+  2026-08-30  Schema design (picture + how to read) is section 1 of
+              modules/product/docs/database-design.txt. No separate
+              schema-design.txt.
+  2026-08-31  Visual schema moved to the BOTTOM of database-design.txt
+              (labeled diagrams A–E).
+  2026-08-31  Product bootstrap SQL written from database-design.txt:
+              modules/product/src/Infrastructure/Persistence/Bootstrap/schema.sql
+              Target database name: eCommercesolution. Not applied yet
+              (local Postgres rejected the .env app/secret login).
+  2026-08-31  Created database ecommercesolution; applied platform +
+              product bootstrap SQL (22 tables in schema product).
 
