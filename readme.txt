@@ -126,3 +126,75 @@ Boundary: Cannot calculate its own base prices or check database stock directly.
 5. Promotions Module [ ]
 Responsibility: Manages dynamic cart-level logic, promotional campaigns, and coupon codes.
 Boundary: Calculates temporary checkout discounts but does not permanently alter the base retail pricing stored securely in the Product module.
+
+
+
+Cycle for a developing a module features
+=========================================
+One feature. Blueprint first. Then RED → GREEN on each layer, inside-out.
+
+
+PHASE 1  —  BLUEPRINT     (no code)
+
+    pick one feature          e.g. Draft a Product
+            │
+            ▼
+    list rules + steps + tables
+            │
+            ▼
+    name the classes          do not write them yet
+            │
+            ▼
+    write the card            tests/use-cases.txt
+            │
+            ▼
+         YOU approve  ──────────────────────►  Phase 2
+
+
+PHASE 2  —  3-STEP LOOP     (repeat for each layer)
+
+    ┌─────────┐     php artisan test      ┌─────────┐
+    │  TEST   │ ────────────────────────► │   RED   │  it fails
+    └────┬────┘                           └────┬────┘
+         │                                     │
+         │  paste RED                          │
+         ▼                                     │
+    ┌─────────┐                                │
+    │  CODE   │  minimal feature code          │
+    └────┬────┘                                │
+         │                                     │
+         ▼                                     │
+    ┌─────────┐     php artisan test      ┌─────────┐
+    │  PASS   │ ────────────────────────► │  GREEN  │  it works
+    └─────────┘                           └────┬────┘
+                                               │
+                                               ▼
+                                    next layer ──► Phase 3
+
+
+PHASE 3  —  LAYERS     (this order, always)
+
+    ┌──────────┐
+    │  DOMAIN  │  pure PHP rules
+    │          │  no Laravel, no database
+    └────┬─────┘
+         │  GREEN
+         ▼
+    ┌──────────────┐
+    │ APPLICATION  │  Handler + fake in-memory data
+    └──────┬───────┘
+           │  GREEN
+           ▼
+    ┌────────────────┐
+    │ INFRASTRUCTURE │  Eloquent, this schema, SQLite
+    └───────┬────────┘
+            │  GREEN
+            ▼
+    ┌─────────┐
+    │   API   │  HTTP in → exact JSON for React
+    └─────────┘
+
+
+
+## Each layer have a single test file which we run and test.
+php arisan test filepat/test.php

@@ -36,3 +36,90 @@ This file: what the agent did, dated, newest last.
 
 2026-08-31  Created DB ecommercesolution. Applied platform + product
             schema (22 tables). Postgres lowercased the name.
+
+2026-08-31  Added doc/testing-workflow.txt (TDD inside-out, Pest).
+            Updated .cursorrules feature-by-feature testing order.
+            AGENTS.md not updated.
+
+2026-08-31  Module test tree: Unit/{Domain,Application},
+            Feature/{Api,Infrastructure,Listeners}, Architecture.
+            Folders created under modules/product/tests/.
+            Docs: testing-workflow.txt, folder-structure.txt,
+            modules/product/docs/folder-structure.md.
+
+2026-08-31  testing-workflow.txt + .cursorrules: YOU run each
+            layer test; agent waits. No Inertia, Livewire,
+            TypeScript, or global frontend store. Listeners:
+            assertDatabaseHas + same event ID twice.
+
+2026-08-31  modules/product/tests/use-cases.txt created.
+            Living Use Case Cards for F1–F15. F1 names from
+            Features-list; cards empty. Step 1 writes this file.
+
+2026-08-31  Manual testing cycle: YOU run php artisan test.
+            Agent writes failing test, waits for pasted RED,
+            then minimal code, waits for YOUR GREEN.
+
+2026-09-01  Product features rewritten to F1–F9. Module
+            features-list.txt + host Features-list.txt +
+            tests/use-cases.txt. AGENTS.md not updated.
+
+2026-09-01  MERGE: restored F1–F15 into the new groups.
+            Nothing dropped. New wording folded in.
+
+2026-09-01  Core backend modules from readme.txt added to
+            AGENTS.md. Identity named on Features-list backlog.
+
+2026-09-01  Product features listed in build order (record →
+            flags → variants → taxonomies/SEO → ops). F-ids kept.
+
+2026-09-01  Features merged into numbered 1–12. Old F-ids kept
+            in parentheses. Visibility+featured in 1; types+
+            sold individually in 4.
+
+2026-09-01  Live feature list is 1–12 only. No F-codes.
+
+2026-09-01  Product features 1–12: what it is / must / must-not
+            in modules/product/docs/features-list.txt.
+
+2026-09-01  Feature 1 Domain tests RED:
+            modules/product/tests/Unit/Domain/ProductLifecycleTest.php
+            No production code.
+
+2026-09-01  Feature 1 Domain GREEN code: Product aggregate,
+            status, visibility, exceptions. No Laravel.
+
+2026-09-01  Autoload: host require modules/product + PSR-4.
+            tests/bootstrap.php loads Domain until composer dump.
+
+2026-09-01  Feature 1 Application tests RED:
+            ProductHandlersTest (create/publish/archive/draft/update).
+            In-memory repo + fake outbox. No src/ Application yet.
+
+2026-09-01  Feature 1 Application GREEN code: five handlers,
+            ProductRepository + Outbox ports, ProductUpdated,
+            ProductNotFound. In-memory fakes stay in the test.
+
+2026-09-01  Feature 1 Infrastructure tests RED:
+            EloquentProductRepository mapping on SQLite :memory:.
+            Product schema only. No production persistence yet.
+
+2026-09-01  Commented Product Domain + Application + Contracts
+            so status, visibility, featured, and handler flow are obvious.
+
+2026-09-01  Rule: every production class/enum/interface in src/ has a
+            class comment. module-guideline, .cursorrules, AGENTS.md.
+
+2026-09-01  Feature 1 Infrastructure GREEN code: ProductModel,
+            EloquentProductRepository, Product::reconstitute.
+            SQLite mapping. type/slug/tax_status catalog defaults.
+
+2026-09-01  Feature 1 API tests RED: ProductLifecycleApiTest.
+            POST/PATCH /api/v1/products. 422 problem+json. No src/ Api yet.
+
+2026-09-01  Feature 1 API GREEN: routes, thin controllers, FormRequests,
+            ProductResource, ProductServiceProvider. 35 product tests pass.
+
+2026-09-01  Cycle for a module feature (Phase 1 blueprint,
+            Phase 2 TEST→RED→CODE→GREEN, Phase 3 layers)
+            copied into testing-workflow.txt and .cursorrules.

@@ -9,7 +9,7 @@ How this project is built WITH an AI assistant. Written for two readers:
 
 Demo names: module alpha, table widget, use case CreateWidget.
 Companions: architecture-map.txt, folder-structure.txt,
-            module-guideline.txt.
+            module-guideline.txt, testing-workflow.txt.
 
 
 ===============================================================================
@@ -201,8 +201,13 @@ When the plan is right, YOU paste:
     │   ├── Domain/
     │   └── Infrastructure/
     └── tests/
-        ├── Unit/
-        └── Integration/
+        ├── use-cases.txt
+        ├── Unit/Domain
+        ├── Unit/Application
+        ├── Feature/Api
+        ├── Feature/Infrastructure
+        ├── Feature/Listeners
+        └── Architecture
 
     + Infrastructure/Persistence/Bootstrap/  schema, owner role, app role, grants
     + Persistence Migrations/Seeders/Factories  (empty until first slice)
@@ -224,7 +229,10 @@ YOU paste:
       - service provider, registered once
       - Deptrac layers for each of the five src/ subfolders
         (never a collector on modules/<name>/src/.*)
-      - empty tests/Unit and tests/Integration
+      - empty tests/use-cases.txt,
+        tests/Unit/{Domain,Application},
+        tests/Feature/{Api,Infrastructure,Listeners},
+        tests/Architecture
 
     No tables. No domain code. No endpoints.
     List the files first, one line each, and wait.
@@ -257,6 +265,10 @@ THEN, before any feature:
     That is a good hour. Infra with no Domain = the usual mess.
 
 RED first. The failing test IS the slice.
+
+How to TDD each layer (Domain → Application → Infrastructure → API),
+Pest rules, and the feature checklist: doc/testing-workflow.txt.
+Do not write production code for a layer before that layer's test is RED.
 
     it('creates a widget', function () {
         $this->postJson('/api/v1/widgets', validWidgetPayload())
@@ -392,6 +404,7 @@ WHEN A TEST FAILS - you paste this, not "fix it":
     │ 3 Application/   │ folders are use cases. Commands/ or          │
     │                  │ Services/ means the slice is gone.           │
     │ 4 Domain/        │ any `use Illuminate`? rules, or getters?     │
+    │                  │ every class has a class comment?             │
     │ 5 Migrations/    │ one schema? ->foreign() out of it?           │
     │                  │ every cross-schema id has its comment?       │
     └──────────────────┴──────────────────────────────────────────────┘

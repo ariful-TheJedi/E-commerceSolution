@@ -86,6 +86,7 @@ products                       listing / parent. Not always the SKU.
   id                    UUID PK
   brand_id              UUID NULL           FK → brands.id
   shipping_class_id     UUID NULL           FK → shipping_classes.id
+  shipping_class        TEXT NULL           feature-6 label exposed by API
   default_variant_id    UUID NULL           FK → product_variants.id
                                             SET after insert (avoid cycle)
   type                  TEXT NOT NULL       physical | virtual | downloadable
@@ -465,7 +466,7 @@ D. MEDIA, SPECS, LINKS, KITS
 
   products  N >--< N  products
             join: product_relations
-            kind = related | upsell | cross_sell | fbt
+            kind = related | upsell | cross_sell | alternative | fbt
 
   products (parent)  1 ----< N  [ product_components ] ----> child product
                      kind = grouped | bundle                    or variant

@@ -1,0 +1,513 @@
+===============================================================================
+                 P R O D U C T   —   U S E   C A S E S
+===============================================================================
+Living catalog. One card per use case. Fill and update here — not in chat.
+
+  Scope names:     doc/Features-list.txt  (wins if this file disagrees)
+  Working list:    modules/product/docs/features-list.txt
+  How to TDD:      doc/testing-workflow.txt
+
+HOW THIS FILE WORKS
+  Features are numbered 1 to 12. Same numbers as features-list.txt.
+  When a feature is the active slice: write or update the card HERE.
+  YOU approve the card. Then the plan. Then tests. No src/ before that.
+  Do not invent use cases. Names come from Features-list only.
+  Empty "_" means not written yet.
+
+STATUS
+  [ ]  planned     [~]  in progress     [x]  done     [-]  parked
+
+CARD SHAPE (copy for a new use case)
+
+    Use case:
+    Status:    [ ]
+    Feature:   1
+
+    Trigger (front door):
+      _
+
+    Business rules (invariants):
+      _
+
+    Steps (orchestration):
+      _
+
+    Side effects (outbox events):
+      _
+
+    Tests:
+      [ ] tests/Unit/Domain
+      [ ] tests/Unit/Application
+      [ ] tests/Feature/Infrastructure
+      [ ] tests/Feature/Api
+      [ ] tests/Feature/Listeners   (only if this slice has a listener)
+
+
+-------------------------------------------------------------------------------
+INDEX  (1 to 12 — one feature per turn)
+-------------------------------------------------------------------------------
+  [x]  1.  Product Lifecycle & Visibility
+  [x]  2.  Identifiers & Details
+  [ ]  3.  Pricing Models
+  [x]  4.  Product Types & Limits
+  [x]  5.  SEO
+  [ ]  6.  Shipping Catalog Data
+  [ ]  7.  Global Specifications
+  [ ]  8.  Multi-Option Variants
+  [ ]  9.  Media Galleries
+  [ ] 10.  Taxonomies
+  [ ] 11.  Relationships
+  [ ] 12.  Operations
+
+
+===============================================================================
+1.  Product Lifecycle & Visibility                             [x]
+===============================================================================
+Create, update, draft, publish (active), archive.
+Visibility: visible, catalog, search, hidden. Featured is a separate flag.
+
+  Use case:  CreateProduct
+  Status:    [x]
+  Feature:   1
+
+    Trigger (front door):
+      POST /api/v1/products  (Idempotency-Key). JSON data: id, title, sku, status, visibility, featured.
+
+    Business rules (invariants):
+      New product is draft. Visibility defaults to visible. Featured defaults to no.
+      Title is required so the listing can exist. SKU (feature 2) is required on the default variant.
+
+    Steps (orchestration):
+      CreateProductHandler: Product::create → repository.save → outbox.record(ProductUpdated).
+
+    Side effects (outbox events):
+      ProductUpdated (eventId, productId, occurredAt).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [x] tests/Feature/Listeners
+
+  Use case:  UpdateProduct
+  Status:    [x]
+  Feature:   1
+
+    Trigger (front door):
+      PATCH /api/v1/products/{id}  visibility and/or featured. Status unchanged.
+
+    Business rules (invariants):
+      Allowed on draft and active. Forbidden on archived.
+      Featured is not a visibility value.
+
+    Steps (orchestration):
+      Find by id → updateListing → save → outbox.record(ProductUpdated). Missing → ProductNotFound.
+
+    Side effects (outbox events):
+      ProductUpdated (application layer).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [x] tests/Feature/Listeners
+
+  Use case:  DraftProduct
+  Status:    [x]
+  Feature:   1
+
+    Trigger (front door):
+      POST /api/v1/products/{id}/draft
+
+    Business rules (invariants):
+      Active or archived → draft. Publish is draft → active only.
+
+    Steps (orchestration):
+      Find by id → draft() → save → outbox.record(ProductUpdated). Missing → ProductNotFound.
+
+    Side effects (outbox events):
+      ProductUpdated (application layer).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [x] tests/Feature/Listeners
+
+  Use case:  PublishProduct
+  Status:    [x]
+  Feature:   1
+
+    Trigger (front door):
+      POST /api/v1/products/{id}/publish
+
+    Business rules (invariants):
+      Draft → active only. Not from active. Not from archived.
+
+    Steps (orchestration):
+      Find by id → publish() → save → outbox.record(ProductUpdated). Missing → ProductNotFound.
+
+    Side effects (outbox events):
+      ProductUpdated (application layer).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [x] tests/Feature/Listeners
+
+  Use case:  ArchiveProduct
+  Status:    [x]
+  Feature:   1
+
+    Trigger (front door):
+      POST /api/v1/products/{id}/archive
+
+    Business rules (invariants):
+      Draft or active → archived. Not from archived.
+
+    Steps (orchestration):
+      Find by id → archive() → save → outbox.record(ProductUpdated). Missing → ProductNotFound.
+
+    Side effects (outbox events):
+      ProductUpdated (application layer).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [x] tests/Feature/Listeners
+
+
+===============================================================================
+2.  Identifiers & Details                                      [x]
+===============================================================================
+Listing: title, short description, long description, optional brand (text).
+SKU (one default variant): sku required unique; barcode, gtin, mpn optional.
+GTIN is one field (UPC / EAN / ISBN are not extra columns).
+
+  Use case:  CreateProduct
+  Status:    [x]
+  Feature:   2
+
+    Trigger (front door):
+      POST /api/v1/products  (Idempotency-Key). Required: title, sku.
+      Optional: short_description, description, brand, barcode, gtin, mpn,
+      visibility, featured.
+
+    Business rules (invariants):
+      Title and SKU non-empty. One default variant created with the listing.
+      SKU unique across product_variants. Brand is optional text, not a brands table.
+      Do not generate barcodes. SKU is not stock.
+
+    Steps (orchestration):
+      CreateProductHandler: if skuTaken → DuplicateSku.
+      Product::create with ProductVariant → repository.save → outbox.record(ProductUpdated).
+
+    Side effects (outbox events):
+      ProductUpdated (eventId, productId, occurredAt). No sku/title on the event.
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [ ] tests/Feature/Listeners
+
+  Use case:  UpdateProduct
+  Status:    [x]
+  Feature:   2
+
+    Trigger (front door):
+      PATCH /api/v1/products/{id}. Any of: title, short_description, description,
+      brand, sku, barcode, gtin, mpn, visibility, featured. Omitted = unchanged.
+
+    Business rules (invariants):
+      Allowed on draft and active. Forbidden on archived.
+      Empty title rejected. SKU if sent must stay unique (except this variant).
+      Empty optional strings clear that field.
+
+    Steps (orchestration):
+      Find by id → update details / listing / default identifiers →
+      skuTaken if sku changes → save → outbox.record(ProductUpdated).
+      Missing → ProductNotFound.
+
+    Side effects (outbox events):
+      ProductUpdated (application layer).
+
+    Tests:
+      [x] tests/Unit/Domain
+      [x] tests/Unit/Application
+      [x] tests/Feature/Infrastructure
+      [x] tests/Feature/Api
+      [ ] tests/Feature/Listeners
+
+
+===============================================================================
+3.  Pricing Models                                             [x]
+===============================================================================
+Base, compare-at / sale, sale start/end (UTC), internal cost, tax
+status, tax class.
+
+  Use case: CreateProduct pricing
+  Status:    [x]
+  Feature:   3
+
+    Trigger: POST /api/v1/products with variant pricing and tax settings.
+    Rules: non-negative integer minor units; uppercase three-letter currency;
+      sale dates are UTC and must be supplied together in chronological order.
+    Result: pricing is stored on the default variant and tax settings on product.
+    Side effects: ProductUpdated.
+
+  Use case: UpdateProduct pricing
+  Status:    [x]
+  Feature:   3
+
+    Trigger: PATCH /api/v1/products/{id} with pricing and/or tax settings.
+    Rules: same pricing validation; archived products cannot be changed.
+    Result: existing catalog pricing and tax settings are replaced.
+    Side effects: ProductUpdated.
+
+
+===============================================================================
+4.  Product Types & Limits                                     [x]
+===============================================================================
+Physical, virtual, downloadable, grouped, bundle, external URL.
+Sold individually is a catalog flag, not inventory.
+
+  Use case: CreateProduct type settings
+  Status:    [x]
+  Feature:   4
+
+    Trigger: POST /api/v1/products with type, sold_individually, and optional external_url.
+    Result: type settings are stored on the product and ProductUpdated is recorded.
+
+  Use case: UpdateProduct type settings
+  Status:    [x]
+  Feature:   4
+
+    Trigger: PATCH /api/v1/products/{id} with type settings.
+    Rules: archived products cannot be changed.
+    Result: catalog type settings are replaced and ProductUpdated is recorded.
+
+  (no use-case cards yet)
+
+
+===============================================================================
+5.  SEO                                                        [ ]
+===============================================================================
+URL slugs, meta titles and descriptions, slug redirects. Product slugs are
+unique; category and collection slugs land with their owning features.
+
+  Use case: CreateProduct SEO
+  Status:    [x]
+  Feature:   5
+
+    Trigger: POST /api/v1/products with an optional slug and meta fields.
+    Rules: omitted slug is derived from title; product slugs are unique.
+    Result: slug and metadata are stored on the product.
+
+  Use case: UpdateProduct SEO
+  Status:    [x]
+  Feature:   5
+
+    Trigger: PATCH /api/v1/products/{id} with slug or meta fields.
+    Rules: a changed slug creates a from_path → to_path redirect; archived
+      products cannot change SEO fields.
+    Result: current SEO values are stored and the old path remains resolvable.
+
+
+===============================================================================
+6.  Shipping Catalog Data                                      [x]
+===============================================================================
+Weight and dimensions are non-negative catalog measurements in grams and
+millimetres. Product values are defaults; the default variant may override
+each measurement. Shipping class is an optional label only. No rate quotes.
+
+  Use case: CreateProduct shipping data
+    Input: optional weight_g, length_mm, width_mm, height_mm and
+      shipping_class on the product; variant_* fields for the default SKU.
+    Rule: measurements cannot be negative; no carrier, zone, or price data.
+    Result: values are stored and returned in the product resource.
+
+  Use case: UpdateProduct shipping data
+    Input: any shipping fields on PATCH /products/{id}.
+    Rule: omitted values remain unchanged; archived products remain frozen.
+    Result: product and default-variant shipping data is updated atomically.
+
+
+===============================================================================
+7.  Global Specifications                                      [x]
+===============================================================================
+Reusable typed attributes may be marked filterable, and enum attributes may
+have reusable options with color or image swatches. Values can be assigned
+to a product or an optional variant. These are not option combinations.
+
+  Use case: CreateAttribute
+    Input: name, slug, data_type (text, number, boolean, enum), and facet
+      metadata (filterable, sortable, visible_on_pdp).
+    Result: reusable attribute definition is stored in the Product schema.
+
+  Use case: CreateAttributeOption
+    Input: attribute id, label, slug, position, and optional color_hex/image_path.
+    Rule: option metadata is display data; it does not create a variant.
+
+  Use case: AssignProductAttribute
+    Input: attribute_id and either value or attribute_option_id, plus optional
+      variant_id.
+    Rule: enum attributes require an option; other types require a value.
+    Result: assignment is stored and ProductUpdated is written atomically.
+
+
+===============================================================================
+8.  Multi-Option Variants                                      [x]
+===============================================================================
+Unique SKU, barcode, and price per option combination, plus exactly one
+default variant. A simple product keeps its original default SKU.
+
+  Use case: CreateProductOption
+    Input: product id, name, position.
+    Result: one option dimension is stored for the product.
+
+  Use case: CreateProductOptionValue
+    Input: option id, label, slug, position, and optional swatch metadata.
+    Result: one selectable value is stored; no SKU is created.
+
+  Use case: CreateVariant
+    Input: SKU, barcode, price, option value ids, and optional is_default.
+    Rule: SKU is unique; every selected value belongs to the product; at most
+      one value per option is selected. No stock is stored.
+    Result: sellable variant and selections are written atomically.
+
+
+===============================================================================
+9.  Media Galleries                                            [ ]
+===============================================================================
+Image sets, thumbnail, reorder, photos mapped to variants, digital
+downloads with limit / expiry.
+
+  Use case: AddProductImage
+  Status:    [x]
+  Feature:   9
+
+    Trigger: POST /api/v1/products/{id}/media.
+    Rules: path is required; position is non-negative; optional variant must
+      belong to the product; selecting primary demotes the previous primary.
+    Result: image metadata is stored and ProductUpdated is recorded.
+
+  Use case: UpdateProductImage
+  Status:    [x]
+  Feature:   9
+
+    Trigger: PATCH /api/v1/products/{id}/media/{mediaId}.
+    Rules: media must belong to the product; moving an image shifts other
+      positions; primary remains unique; variant mapping is product-scoped.
+    Result: gallery order, primary state, alt text, or mapping is updated.
+
+  Use case: AddDigitalFile
+  Status:    [x]
+  Feature:   9
+
+    Trigger: POST /api/v1/products/{id}/digital-files.
+    Rules: path is required; optional limit and expiry days are positive;
+      optional variant must belong to the product. Orders owns entitlement.
+    Result: file path and catalog download metadata are stored.
+
+
+===============================================================================
+10. Taxonomies                                                 [x]
+===============================================================================
+Nested categories, tags, and manual or automatic collections.
+
+  Use case: CreateCategory and CreateTag
+  Status:    [x]
+  Feature:   10
+    Trigger: POST /api/v1/categories or POST /api/v1/tags.
+    Rules: categories may have an existing parent; tags are flat.
+
+  Use case: AssignProductCategory and AssignProductTag
+  Status:    [x]
+  Feature:   10
+    Trigger: PUT /api/v1/products/{id}/categories/{categoryId} or
+      PUT /api/v1/products/{id}/tags/{tagId}.
+    Rules: references must exist; one canonical category is enforced per
+      product; repeated tag assignment is harmless.
+
+  Use case: CreateCollection, AddCollectionRule, AddCollectionProduct
+  Status:    [x]
+  Feature:   10
+    Trigger: collection, rule, and membership endpoints under
+      /api/v1/collections.
+    Rules: collections are manual or automatic; automatic rules use only
+      catalog fields and all/any matching. Rule evaluation is out of scope.
+
+
+===============================================================================
+11. Relationships                                              [x]
+===============================================================================
+Related, up-sell, cross-sell, alternatives, frequently bought together.
+
+  Use case: CreateProductRelation
+  Status:    [x]
+  Feature:   11
+    Trigger: PUT /api/v1/products/{id}/relationships/{toProductId}.
+    Rules: both products must exist; self-links are forbidden; kind is
+      related, upsell, cross_sell, alternative, or fbt. Repeated links are
+      idempotent. Links are manual and never generated from order history.
+    Result: the link is stored and ProductUpdated is recorded atomically.
+
+
+===============================================================================
+12. Operations                                                 [x]
+===============================================================================
+Admin list, duplicate, bulk edit, CSV import / export.
+
+  Use case: AdminProductList
+  Status:    [x]
+  Feature:   12
+    Trigger: GET /api/v1/admin/products?cursor=...&limit=...
+    Rules: cursor pagination is bounded to 100 rows; offset pagination is not
+      used. The response contains a next_cursor when another page exists.
+
+  Use case: DuplicateProduct
+  Status:    [x]
+  Feature:   12
+    Trigger: POST /api/v1/admin/products/{id}/duplicate.
+    Rules: the copy receives a new product id, SKU, slug, and draft status.
+      The source must exist and the new SKU and slug must be unique.
+
+  Use case: BulkEditProducts
+  Status:    [x]
+  Feature:   12
+    Trigger: PATCH /api/v1/admin/products/bulk.
+    Rules: applies only catalog visibility and featured flags to supplied ids.
+
+  Use case: ImportProducts and ExportProducts
+  Status:    [x]
+  Feature:   12
+    Trigger: POST /api/v1/admin/products/import and GET
+      /api/v1/admin/products/export.
+    Rules: CSV uses title, sku, and optional slug columns; export emits the
+      admin catalog identity and lifecycle fields.
+
+
+===============================================================================
+CHANGE LOG
+===============================================================================
+  2026-09-01  Live list is 1–12 only. Old F-codes removed.
+              Feature 1 still has Create / Update / Draft / Publish /
+              Archive cards (empty).
+  2026-09-01  Feature 1 Domain GREEN. Application tests RED.
+  2026-09-01  Feature 1 Application GREEN. Infrastructure tests RED.
+  2026-09-01  Feature 1 Infrastructure GREEN. API tests RED.
+  2026-09-01  Feature 1 API GREEN. POST/PATCH /api/v1/products.
+  2026-09-02  Feature 2 cards: CreateProduct / UpdateProduct grow with
+              listing copy + default variant SKU codes.
+  2026-09-02  Feature 2 done. Domain → Application → Infrastructure →
+              API GREEN.
+  2026-09-02  Feature 1 done. ProductApi + platform.outbox same txn.

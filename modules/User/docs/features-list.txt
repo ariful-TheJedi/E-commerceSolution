@@ -1,0 +1,88 @@
+===============================================================================
+                 I D E N T I T Y   —   F E A T U R E   L I S T
+===============================================================================
+
+Module:   Identity (User)
+Schema:   identity
+Status:   planned
+Source:   doc/Features-list.txt is authoritative.
+
+Identity owns credentials, sessions, profile data, addresses, account state,
+privacy requests, roles, permissions, and security events. Other modules use
+published Identity contracts and immutable DTOs only; they never read
+identity.* tables.
+
+FEATURES
+-------------------------------------------------------------------------------
+[ ] 1.  Registration & Account Creation
+    Unique normalized email, password hashing, optional name and phone,
+    default customer role, and explicit email-verification policy.
+
+[ ] 2.  Login & Session Token Issuance
+    Credential verification without account enumeration; opaque expiring
+    server-managed tokens, rotation, and safe device metadata.
+
+[ ] 3.  Email Verification
+    Single-use, expiring, hashed verification tokens. Email changes require
+    re-verification and completion is idempotent.
+
+[ ] 4.  Credential Recovery
+    Non-enumerating password reset request and completion using single-use,
+    expiring, hashed tokens. Successful reset revokes active sessions.
+
+[ ] 5.  Password & Credential Changes
+    Current-password verification, password policy, email-change verification,
+    and session rotation/revocation.
+
+[ ] 6.  Session Control & Revocation
+    Safe session listing, individual revocation, revoke-all-other-sessions,
+    and invalidation on reset or suspension. Raw tokens are never exposed.
+
+[ ] 7.  Profile Details
+    First name, last name, normalized email, phone, and permitted display data.
+    No order, cart, review, loyalty, or customer-pricing data.
+
+[ ] 8.  Address Book
+    Owned shipping/billing addresses, ownership checks, defaults per purpose,
+    and an address DTO contract. Consumers copy historical snapshots.
+
+[ ] 9.  Account Status & Deletion Requests
+    Active, suspended, and deletion-requested states; suspension blocks access;
+    deletion is authorized, revokes access, follows retention/anonymization,
+    and never cascades into Orders data.
+
+[ ] 10. Roles & Permissions (RBAC)
+     Stable customer, manager, and administrator roles with explicit
+     permissions. Client-supplied roles are never trusted.
+
+[ ] 11. Route Protection Integration
+     Identity authentication and authorization contracts consumed by Host
+     middleware. The Host applies middleware to every protected module route.
+
+[ ] 12. Abuse Protection & Security Policy
+     Rate limits, login backoff/lockout, replay protection, secure cookies,
+     CSRF/origin/transport policy, and an optional MFA provider port.
+
+[ ] 13. Personal Data Export & Privacy Requests
+     Authenticated data-export requests, lifecycle tracking, secure delivery,
+     and deletion/anonymization requests for Identity-owned data only.
+
+[ ] 14. Security Audit Events
+     Immutable safe events for registration, login outcome, verification,
+     recovery, credential/session changes, role changes, suspension, and
+     deletion requests. Never include passwords or raw secrets.
+
+OUT OF SCOPE
+-------------------------------------------------------------------------------
+[-] Orders: carts, checkout, payments, fulfillment, order history,
+    download entitlements
+[-] Promotions: coupons, campaigns, loyalty points, customer pricing
+[-] Customer Reviews: stars, reviews, Q&A
+[-] Product: catalog, SKUs, inventory, product permissions
+[-] Inventory: stock, warehouses, reservations, backorders
+[-] Search, marketing subscriptions, shipping quotes, and tax rates
+
+WooCommerce comparison source: official WooCommerce REST API v3 documents
+customer administration as a separate surface, while WordPress user APIs
+cover names, email, roles, capabilities, profile, and deletion operations.
+This list adapts those surfaces to the modular boundaries of this project.

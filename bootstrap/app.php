@@ -15,5 +15,22 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (\Modules\Product\Application\Exceptions\ProductValidationException $e, $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) return null;
+            return response()->json(['type' => 'https://ecommercesolution.test/problems/validation', 'title' => 'The request is not valid.', 'status' => 422, 'errors' => $e->errors()], 422, ['Content-Type' => 'application/problem+json']);
+        });
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return response()->json([
+                'type' => 'https://ecommercesolution.test/problems/validation',
+                'title' => 'The request is not valid.',
+                'status' => 422,
+                'errors' => $e->errors(),
+            ], 422, [
+                'Content-Type' => 'application/problem+json',
+            ]);
+        });
     })->create();

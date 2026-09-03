@@ -1,0 +1,300 @@
+===============================================================================
+                    T E S T I N G   W O R K F L O W
+                    Here we use TDD(Test Driven Development)
+===============================================================================
+Cycle for developing a module feature. Companion to
+dev-workflow.txt (when to slice) and architecture-map.txt (shape).
+
+  One feature. Blueprint first. Then RED → GREEN on each layer,
+  inside-out. Notebook copy: readme.txt (same cycle).
+
+Demo names: module alpha, table widget, use case CreateWidget.
+
+CRITICAL — frontend and boilerplate
+  The API serves a vanilla React frontend (Blade storefront + React
+  islands / admin SPA).
+  Do NOT use or generate: Inertia, Livewire, TypeScript, or a global
+  state meta-framework.
+
+Pest only:  it(...)  or  test(...).
+Input → Call → Verify.
+Do not add heavy object-oriented TestCase classes per feature.
+THE AGENT never runs `php artisan test`. YOU run it.
+
+
+===============================================================================
+0 - CYCLE FOR A MODULE FEATURE
+===============================================================================
+
+PHASE 1  —  BLUEPRINT     (no code)
+
+    pick one feature          e.g. Draft a Product
+            │
+            ▼
+    list rules + steps + tables
+            │
+            ▼
+    name the classes          do not write them yet
+            │
+            ▼
+    write the card            tests/use-cases.txt
+            │
+            ▼
+         YOU approve  ──────────────────────►  Phase 2
+
+
+PHASE 2  —  3-STEP LOOP     (repeat for each layer)
+
+    YOU run every test in YOUR terminal. THE AGENT never runs it.
+    Command:  php artisan test
+              (narrow it: php artisan test --filter=CreateWidget)
+
+    ┌─────────┐     php artisan test      ┌─────────┐
+    │  TEST   │ ────────────────────────► │   RED   │  it fails
+    └────┬────┘                           └────┬────┘
+         │                                     │
+         │  paste RED                          │
+         ▼                                     │
+    ┌─────────┐                                │
+    │  CODE   │  minimal feature code          │
+    └────┬────┘                                │
+         │                                     │
+         ▼                                     │
+    ┌─────────┐     php artisan test      ┌─────────┐
+    │  PASS   │ ────────────────────────► │  GREEN  │  it works
+    └─────────┘                           └────┬────┘
+                                               │
+                                               ▼
+                                    next layer ──► Phase 3
+
+    AGENT writes the failing test. STOPS. No production code.
+    YOU run php artisan test. YOU must see RED. Paste the failure.
+    Only then AGENT writes the minimal code.
+    YOU run php artisan test again. YOU must see GREEN.
+    If step one was already GREEN: the test is wrong. Rewrite it.
+
+
+PHASE 3  —  LAYERS     (this order, always)
+
+    ┌──────────┐
+    │  DOMAIN  │  tests/Unit/Domain/
+    │          │  pure PHP rules. no Laravel, no database
+    └────┬─────┘
+         │  GREEN
+         ▼
+    ┌──────────────┐
+    │ APPLICATION  │  tests/Unit/Application/
+    │              │  Handler + fake in-memory data
+    └──────┬───────┘
+           │  GREEN
+           ▼
+    ┌────────────────┐
+    │ INFRASTRUCTURE │  tests/Feature/Infrastructure/
+    │                │  Eloquent, this schema, SQLite
+    └───────┬────────┘
+            │  GREEN
+            ▼
+    ┌─────────┐
+    │   API   │  tests/Feature/Api/
+    │         │  HTTP in → exact JSON for React
+    └─────────┘
+
+    Do not skip inward. Do not write the controller first.
+    Do not write production code until YOU pasted the RED output.
+    Do not start the next layer until YOU have seen GREEN.
+
+
+===============================================================================
+0b - TEST FOLDERS  (every module, same tree)
+===============================================================================
+
+    modules/<name>/tests/
+    ├── use-cases.txt             Living Use Case Cards for this module.
+    │                             Write and update here in Phase 1.
+    ├── Unit/
+    │   ├── Domain/           Pure PHP rules. No Laravel. No DB.
+    │   └── Application/      Handlers. In-memory port fakes. Fake outbox.
+    ├── Feature/
+    │   ├── Api/              Front door HTTP. 422 + exact JSON shape.
+    │   ├── Infrastructure/   Persistence in THIS schema. SQLite :memory:.
+    │   └── Listeners/        Event → row. assertDatabaseHas. Same event
+    │                         ID twice. Not Event::assertDispatched.
+    └── Architecture/         This module's layers do not mix.
+
+    Layer → folder:
+
+        Domain           →  tests/Unit/Domain/
+        Application      →  tests/Unit/Application/
+        Infrastructure   →  tests/Feature/Infrastructure/
+        API              →  tests/Feature/Api/
+        Listeners        →  tests/Feature/Listeners/
+        Boundaries       →  tests/Architecture/
+
+    Host tests/ stays host-only (storefront, media, admin shell, system).
+    Module tests never live under the host tests/ tree.
+
+
+===============================================================================
+1 - CARD FIELDS  (Phase 1 writes these)
+===============================================================================
+
+    Trigger (front door)
+    Business rules (invariants)
+    Steps (orchestration)
+    Side effects (outbox events, past tense)
+    Class names (no code yet)
+
+    File: modules/<name>/tests/use-cases.txt
+    That file is the only file allowed in Phase 1.
+    YOU approve. Then Phase 2. No src/ before that.
+
+    One feature / use case at a time. Same cycle every feature.
+
+
+===============================================================================
+2 - LAYER RULES
+===============================================================================
+
+    Input → Call → Verify. That is the whole test.
+
+    ─────────────────────────────────────────────────────────────────
+    1. DOMAIN  (tests/Unit/Domain)
+    ─────────────────────────────────────────────────────────────────
+    Goal:      core business rules, instantly, no framework.
+    Where:     modules/<name>/tests/Unit/Domain/
+    Boots:     nothing. No Laravel. No migrations. No Eloquent.
+    Input:     plain PHP values into the entity method.
+    Call:      the domain method.
+    Verify:    state change or exception.
+
+    A domain test that needs a database is in the wrong layer.
+
+    ─────────────────────────────────────────────────────────────────
+    2. APPLICATION  (tests/Unit/Application)
+    ─────────────────────────────────────────────────────────────────
+    Goal:      handler orchestration.
+    Where:     modules/<name>/tests/Unit/Application/
+    Boots:     optional. No real Eloquent repository.
+    Input:     a command.
+    Call:      the handler, with in-memory fakes for ports
+               (repository, clock, ids, outbox).
+    Verify:    the handler called the right methods; an event
+               object is on the fake outbox.
+
+    Fake the PORT (in-memory adapter). That is law 4.
+    Do not fake Eloquent. Do not boot another module.
+
+    ─────────────────────────────────────────────────────────────────
+    3. INFRASTRUCTURE  (tests/Feature/Infrastructure)
+    ─────────────────────────────────────────────────────────────────
+    Goal:      database persistence.
+    Where:     modules/<name>/tests/Feature/Infrastructure/
+    This is the only place you test real persistence.
+    Isolated to THIS module's schema. No cross-schema queries.
+
+    Local slice: in-memory SQLite (:memory:). Fast. Mapping tests
+    (model ↔ domain) live here.
+
+    Does NOT replace:
+      - schema wall test against real Postgres (roles, search_path)
+      - system tests that assert outbox + the other schema
+
+    architecture-map.txt still wins: never fake the module under
+    test; never fake the event bus for those wall/system tests.
+
+    ─────────────────────────────────────────────────────────────────
+    4. API  (tests/Feature/Api)
+    ─────────────────────────────────────────────────────────────────
+    Goal:      the front door, for vanilla React.
+    Where:     modules/<name>/tests/Feature/Api/
+    Call:      $this->postJson() / getJson() / patchJson()
+    Verify:    request validation (422); the controller translates
+               the result into the exact JSON shape the React
+               frontend expects; RFC 9457 `type` on errors.
+    Do NOT re-test domain rules here. Format and transport only.
+    No module name in the URL.
+
+    ─────────────────────────────────────────────────────────────────
+    5. LISTENERS  (tests/Feature/Listeners)
+    ─────────────────────────────────────────────────────────────────
+    Goal:      cross-module reaction via the event bus.
+    Where:     modules/<name>/tests/Feature/Listeners/
+    Call:      the listener / handler with an event.
+    Verify:    assertDatabaseHas — the owning schema has the row.
+               Run the SAME handler with the SAME event ID twice.
+               Second run: same state. Duplicate events ignored.
+
+    Forbidden as the only proof:
+        Event::assertDispatched(...)
+
+    ─────────────────────────────────────────────────────────────────
+    6. ARCHITECTURE  (tests/Architecture)
+    ─────────────────────────────────────────────────────────────────
+    Where:     modules/<name>/tests/Architecture/
+    Verify:    layers do not mix (Domain has no Illuminate, Api has
+               no Eloquent, Contracts is the only public door).
+    Host tests/Architecture/ stays host-wide.
+
+
+===============================================================================
+3 - FORBIDDEN  (rewrite the test)
+===============================================================================
+
+    [ ] Global Eloquent model or factory used across a module boundary
+    [ ] Cross-schema database queries
+    [ ] Heavy database setup to test a pure PHP domain rule
+    [ ] Laravel boot / migrations / factories in a Domain test
+    [ ] Event::assertDispatched as the proof a listener worked
+    [ ] Business rules asserted only in a FormRequest or only in React
+    [ ] New OO TestCase class per feature (use Pest it() / test())
+    [ ] React generated with TypeScript or Inertia syntax
+    [ ] Livewire, Inertia, or a global frontend store as the API
+    [ ] Agent runs php artisan test / Pest to declare RED or GREEN
+
+
+===============================================================================
+4 - FEATURE-BY-FEATURE  (agent checklist)
+===============================================================================
+
+    For feature Fn / use case CreateWidget:
+
+    [ ] Use-case card written in tests/use-cases.txt
+        (trigger, rules, steps, outbox)
+    [ ] Plan listed (entities, command/handler, ports, events)
+    [ ] YOU approved the plan — no src/ before that
+    Phase 2 loop for each Phase 3 layer:
+    [ ] TEST. AGENT writes failing test. STOPS.
+    [ ] YOU run php artisan test. See RED. Paste it.
+    [ ] CODE. AGENT writes minimal production code. STOPS.
+    [ ] PASS. YOU run php artisan test. See GREEN.
+        Domain           tests/Unit/Domain/
+        Application      tests/Unit/Application/
+        Infrastructure   tests/Feature/Infrastructure/
+        API              tests/Feature/Api/
+    [ ] If it writes: Idempotency-Key test
+    [ ] If it lists: cursor pagination test, not offset
+    [ ] If it has a listener: assertDatabaseHas; same event ID twice
+                                        tests/Feature/Listeners/
+    [ ] Architecture check still green
+                                        tests/Architecture/
+    [ ] Module docs updated in the same turn
+    [ ] Feature box flipped in doc/Features-list.txt
+
+    Then stop. Wait for "next".
+
+
+===============================================================================
+5 - WHERE THIS FITS
+===============================================================================
+
+    architecture-map.txt   shape. wins on database and extraction.
+    folder-structure.txt   where files go.
+    module-guideline.txt   how to change a module.
+    dev-workflow.txt       require → plan → skeleton → slice → review.
+    THIS FILE              how to TDD one feature, layer by layer.
+
+    If this file and architecture-map.txt disagree on the database:
+    architecture-map.txt wins (real Postgres for the wall and for
+    cross-schema proofs). This file still governs RED/GREEN order,
+    who runs the test (YOU, in YOUR terminal), and that production
+    code waits for YOUR pasted RED output.

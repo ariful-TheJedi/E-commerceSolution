@@ -38,10 +38,10 @@ HOW TO USE
 -------------------------------------------------------------------------------
 STATUS
 -------------------------------------------------------------------------------
-  Stage:           Product — F1–F15 WooCommerce-capable small/mid catalog.
-                   Folder empty; rebuild skeleton next. R1 done.
+  Stage:           Product — 12 features. Skeleton (R2) and module
+                   docs (R2b) still open.
   Active module:   Product
-  Last updated:    2026-08-30
+  Last updated:    2026-09-01
 
 
 -------------------------------------------------------------------------------
@@ -53,9 +53,10 @@ Schema:   product
 Folder:   modules/product
 Status:   [~] in progress
 Notes:    Catalog / PIM for sellable products. Owns product.* only.
-          Working list: modules/product/docs/features-list.txt
+          Detailed list: modules/product/docs/features-list.txt
           Folder emptied 2026-08-30; rebuild skeleton (R2) then docs
-          (R2b) before any feature slice. One feature per turn, F1 first.
+          (R2b) before any feature slice. One feature per turn,
+          1 then 2 then 3 … through 12. Do not skip ahead.
           DB assets in Infrastructure/Persistence/ (Bootstrap, Migrations,
           Seeders, Factories). REST is format only. Other modules use
           ProductApi (DTOs). ProductUpdated → platform.outbox, same txn.
@@ -65,7 +66,7 @@ Notes:    Catalog / PIM for sellable products. Owns product.* only.
       [ ] R2  Skeleton (package, provider, layers, Deptrac, empty tests)
       [ ] R2b Module docs (docs/README, folder-structure, database, api)
       [ ] R3  Schema wall test passes against real Postgres
-      [ ] R4  Features F1–F15 complete
+      [ ] R4  Features 1–12 complete
       [ ] R5  Architectural boundaries A1–A5 verified in code + tests
 
     Tables (owned — design: modules/product/docs/database-design.txt
@@ -86,67 +87,224 @@ Notes:    Catalog / PIM for sellable products. Owns product.* only.
       product_media, digital_files, product_relations, url_redirects
 
     Architectural boundaries (must hold)
-      [ ] A1  REST API front door — format/transport only; no business rules
+      [x] A1  REST API front door — format/transport only; no business rules
       [ ] A2  Schema sealed (product.*) — no cross-schema FKs or joins in
-      [ ] A3  State changes emit ProductUpdated to platform.outbox, same txn
+      [x] A3  State changes emit ProductUpdated to platform.outbox, same txn
       [ ] A4  Storefront reads via optimized batch queries (<100ms target)
-      [ ] A5  ProductApi contract — DTOs only
+      [x] A5  ProductApi contract — DTOs only
 
-    Features — Core Identity & Pricing
-      [ ] F1  Lifecycle Control: create, update, draft, publish, archive
-      [ ] F2  Identifiers & Details: titles, short and long descriptions,
-              brands; SKU, barcode, GTIN, UPC, EAN, ISBN, MPN
-      [ ] F3  Pricing Structure: base, compare-at / sale, sale start/end
-              (UTC), cost, tax status and tax class
-      [ ] F4  Product Types: physical, virtual (no shipping), downloadable,
-              grouped, bundles / kits, affiliate / external URLs
-      [ ] F12 Catalog visibility: visible, catalog-only, search-only, hidden
-      [ ] F13 Featured flag (home / merchandising)
-      [ ] F14 Shipping catalog data: weight, dimensions, shipping class
-              (no rate quotes)
-      [ ] F15 Sold individually (one per order — catalog flag)
+    Features — 12 items. Build in this order. One per turn.
+    Full meaning, includes, and must-not: modules/product/docs/features-list.txt
 
-    Features — Variations & Media
-      [ ] F5  Multi-Option Variants: SKU, barcode, price per combination,
-              default variant
-      [ ] F6  Attributes & Specifications: reusable specs, swatches, facet flags
-      [ ] F7  Media Management: galleries, thumbnail, reorder, map to variants,
-              digital downloads with limit and expiry
+      [x] 1.  Product Lifecycle & Visibility
+              Create / update / draft / publish (active) / archive.
+              Visibility: visible, catalog only, search only, hidden.
+              Featured is a separate yes/no flag.
 
-    Features — Organization, SEO & Operations
-      [ ] F8  Categorization: nested category trees, tags, manual or
-              automated collections
-      [ ] F9  SEO Optimization: slugs, meta title/description, slug redirects
-      [ ] F10 Relationships: related, up-sell, cross-sell, frequently bought
-              together
-      [ ] F11 Operations: admin list, duplicate, bulk edit, CSV import/export
+      [x] 2.  Identifiers & Details
+              Listing: title, short/long description, brand.
+              SKU (unique on the variant), barcode, GTIN/UPC/EAN/ISBN, MPN.
+
+        [x] 3.  Pricing Models
+              Variant money: base, compare-at/sale, sale window UTC, cost.
+              Tax status and tax class code (rates are not here).
+
+        [x] 4.  Product Types & Limits
+              physical | virtual | downloadable | grouped | bundle | external.
+              Sold individually = one per order flag, not stock.
+
+        [x] 5.  SEO
+              Unique slugs (product, category, collection).
+              Meta title/description. Old slug → redirect row, not rename.
+
+        [x] 6.  Shipping Catalog Data
+              Weight (g), L×W×H (mm), shipping class label.
+              Variant may override. No quotes.
+
+        [x] 7.  Global Specifications
+              Reusable attributes, options, swatches, facet flag.
+              Assigned to product (optional variant). Not option combos.
+
+      [x] 8.  Multi-Option Variants
+              Each combo is a SKU with own barcode and price.
+              One default variant. Simple product still has one variant.
+
+      [x] 9.  Media Galleries
+              Image paths, one primary thumbnail, reorder, variant map.
+              Digital file path + download limit/expiry. Entitlement = Orders.
+
+      [x] 10. Taxonomies
+              Nested categories (one canonical), tags, collections
+              (manual or automatic catalog rules).
+
+      [x] 11. Relationships
+              Manual links: related, up-sell, cross-sell, alternatives, FBT.
+
+      [x] 12. Operations
+              Admin list (cursor pages), duplicate (new ids/slugs/SKUs),
+              bulk edit, CSV import/export.
 
     Explicitly OUT OF SCOPE for this module (do not implement here)
-      [-] Stock, warehouses, reservations, backorders     → Inventory
-      [-] Coupons, campaigns, B2B price lists, bundle deals → Promotions
-      [-] Cart, checkout, payments, tax rates, download
-          entitlement after purchase                      → Orders
-      [-] Stars, reviews, Q&A                             → Customer Reviews
-      [-] Shipping quotes, search engine, CMS, wishlists,
-          marketplace push, subscriptions, translations,
-          gift-card balances                              → later / other modules
+      [-] Inventory Isolation: stock counts, warehouses, reservations,
+          backorders                                          → Inventory
+      [-] Checkout & Promotions: cart rules, promo codes, coupons,
+          campaigns, customer prices, checkout, payments, tax
+          rates, download entitlement after purchase          → Orders / Promotions
+      [-] Customer Feedback: star ratings, written reviews, Q&A
+                                                              → Customer Reviews
+      [-] Shipping quotes, search engine, translations
+                                                              → later / other modules
 
 
 -------------------------------------------------------------------------------
 BACKLOG / LATER
 -------------------------------------------------------------------------------
-Named as other modules in Product out-of-scope notes — not defined yet.
+Named as other modules — not defined yet.
 Add full feature lists when the developer provides them.
 
+  [ ] Identity (User)
   [ ] Inventory
   [ ] Promotions
   [ ] Orders
   [ ] Customer Reviews
 
 
+  -------------------------------------------------------------------------------
+  MODULE 2 — USER(Identity)
+  -------------------------------------------------------------------------------
+  Schema:   identity
+  Folder:   modules/identity
+  Status:   [ ] planned
+  Notes:    Security checkpoint for the API. Owns credentials, sessions, profile
+         data, addresses, account state, privacy requests, and RBAC.
+         Other modules use Identity contracts for user status, roles, and
+         address snapshots. They never read identity.* directly.
+
+  Feature status:
+    [ ] 1.  Registration & Account Creation
+    [ ] 2.  Login & Session Token Issuance
+    [ ] 3.  Email Verification
+    [ ] 4.  Credential Recovery
+    [ ] 5.  Password & Credential Changes
+    [ ] 6.  Session Control & Revocation
+    [ ] 7.  Profile Details
+    [ ] 8.  Address Book
+    [ ] 9.  Account Status & Deletion Requests
+    [ ] 10. Roles & Permissions (RBAC)
+    [ ] 11. Route Protection Integration
+    [ ] 12. Abuse Protection & Security Policy
+    [ ] 13. Personal Data Export & Privacy Requests
+    [ ] 14. Security Audit Events
+
+  Scope rules:
+    Identity owns names, email, phone, credentials, sessions, roles, account
+    state, addresses, verification, recovery, privacy requests, and security
+    events. Password hashes and reset tokens are never exposed in DTOs/events.
+    Orders owns carts and order history. Promotions owns loyalty, coupons, and
+    customer pricing. Customer Reviews owns feedback. Product owns catalog
+    records. Identity may expose contracts and immutable DTOs, never tables.
+
+
+  IDENTITY FEATURES — NUMBERED REQUIREMENTS
+  -------------------------------------------------------------------------------
+
+    1. Registration & Account Creation
+      Create a customer account with a unique normalized email, password hash,
+      optional first/last name and phone. Never store plaintext passwords.
+      New accounts follow the configured verification policy and default role;
+      registration never creates orders, carts, or promotions data.
+
+    2. Login & Session Token Issuance
+      Verify credentials without revealing whether an email exists. Issue a
+      secure opaque session token or equivalent server-managed credential with
+      expiry, rotation policy, and device metadata. Raw tokens are never logged.
+
+    3. Email Verification
+      Send a single-use, expiring verification token through a mail port.
+      Verification is idempotent, token values are stored hashed, and email
+      changes require re-verification.
+
+    4. Credential Recovery
+      Request and complete password reset through single-use, expiring,
+      hashed tokens. Responses do not disclose account existence. Successful
+      reset revokes active sessions and sends a security notification.
+
+    5. Password & Credential Changes
+      Authenticated users may change a password after current-credential
+      verification. Email changes require verification; credential changes
+      rotate or revoke sessions. Policy checks are not controller-only rules.
+
+    6. Session Control & Revocation
+      List the current user’s sessions with safe device/time metadata, revoke
+      one session, revoke all other sessions, and invalidate tokens on account
+      suspension or password reset.
+
+    7. Profile Details
+      Read and update first name, last name, email, phone, and permitted
+      display fields. Normalize email and phone consistently. No order totals,
+      carts, reviews, loyalty, or customer pricing belong here.
+
+    8. Address Book
+      Create, update, remove, and select saved billing/shipping addresses with
+      ownership checks and one optional default per purpose. Other modules ask
+      through an Identity contract; historical consumers copy snapshots.
+
+    9. Account Status & Deletion Requests
+      Support active, suspended, and deletion-requested states. Suspension
+      blocks authentication without deleting history. Deletion is an explicit
+      authorized workflow with revocation, retention, audit, and anonymization;
+      it never cascades into Orders-owned data.
+
+    10. Roles & Permissions (RBAC)
+      Define stable roles such as customer, manager, and administrator, with
+      explicit permissions. Assign/revoke roles only through authorized
+      administrative use cases; never trust a client-supplied role.
+
+    11. Route Protection Integration
+      Provide host middleware/policy integration for authenticated identity
+      and required permissions. The Host applies middleware; Identity supplies
+      authentication and authorization contracts. Modules do not own user
+      lookup or role tables.
+
+    12. Abuse Protection & Security Policy
+      Rate-limit registration, login, recovery, verification, and token use;
+      apply bounded login backoff/lockout and replay protection. Define secure
+      cookie, CSRF, origin, and transport policy through host configuration.
+      MFA or step-up authentication may be added behind a provider port.
+
+    13. Personal Data Export & Privacy Requests
+      Let authenticated users request an export of Identity-owned data and
+      track its lifecycle. Support authorized deletion/anonymization requests
+      with retention rules and secure delivery. Identity does not export order
+      history; Orders fulfills its own data contract.
+
+    14. Security Audit Events
+      Publish immutable events for registration, login outcome, verification,
+      recovery, password change, session revocation, role change, suspension,
+      and deletion request. Events contain safe identifiers and times, never
+      passwords, raw tokens, reset secrets, or sensitive address data.
+
+
+  OUT OF SCOPE FOR IDENTITY
+  -------------------------------------------------------------------------------
+    [-] Orders: order history, carts, checkout, payment, fulfillment,
+      download entitlements
+    [-] Promotions: coupons, campaigns, loyalty points, customer pricing
+    [-] Customer Reviews: stars, reviews, Q&A
+    [-] Product: catalog, SKUs, inventory, product permissions
+    [-] Inventory: stock, warehouses, reservations, backorders
+    [-] Search, marketing subscriptions, shipping quotes, and tax rates
+
+
 -------------------------------------------------------------------------------
 CHANGE LOG
 -------------------------------------------------------------------------------
+  2026-09-03  Added planned Identity module with 14 numbered features after
+              comparing WooCommerce customer/user surfaces: registration,
+              sessions, verification, recovery, profile, addresses, status,
+              RBAC, route protection, abuse controls, privacy, and audit.
+              Orders, Promotions, Reviews, Product, and Inventory boundaries
+              remain explicit.
   2026-08-28  Added module Catalog (schema product) with F1–F10, A1–A5,
               initial tables, and out-of-scope boundaries. Status: planned.
   2026-08-28  Renamed module Catalog → Product (folder modules/product).
@@ -222,4 +380,34 @@ CHANGE LOG
               (local Postgres rejected the .env app/secret login).
   2026-08-31  Created database ecommercesolution; applied platform +
               product bootstrap SQL (22 tables in schema product).
+  2026-09-01  Product features rewritten to F1–F9 (three groups:
+              Catalog Identity & Organization; Pricing & Variations;
+              Media & Delivery). Dropped from this revision: catalog
+              visibility modes, featured, shipping weight/dims/class,
+              sold individually, operations (list/duplicate/bulk/CSV),
+              collections, slug redirects, brands/GTIN family, sale
+              windows, tax class, grouped/bundle/affiliate types,
+              swatches/facets, default variant. R4 now F1–F9.
+              Working list: modules/product/docs/features-list.txt
+  2026-09-01  MERGE (not replace): restored F1–F15. New wording
+              folded into the existing ids. R4 back to F1–F15.
+  2026-09-01  Core backend modules (Identity, Product, Inventory,
+              Orders, Promotions) copied from readme.txt into
+              AGENTS.md. Identity added to backlog (named only).
+  2026-09-01  Product features listed in build order (F1 → F11 last).
+              F-ids unchanged. Working list matches.
+  2026-09-01  MERGE into numbered 1–12. Visibility+featured → 1;
+              types+sold individually → 4. Old F-ids kept in
+              parentheses. R4 now features 1–12.
+  2026-09-01  Feature list is 1–12 only. Old F-codes removed from
+              the live list (history stays in this changelog).
+  2026-09-01  Feature details added (meaning, includes, must-not)
+              in modules/product/docs/features-list.txt. Host list
+              has a short line per feature.
+  2026-09-01  Feature 1 in progress. Domain Pest tests written (RED).
+              No domain production code yet.
+  2026-09-02  Feature 2 done. Listing copy + default variant SKU codes.
+              Domain → Application → Infrastructure → API GREEN (56 tests).
+  2026-09-02  Feature 1 done. ProductApi (isActive / areActive) and
+              ProductUpdated → platform.outbox, same transaction. A1, A3, A5.
 

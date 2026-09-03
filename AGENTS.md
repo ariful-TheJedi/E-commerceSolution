@@ -6,9 +6,9 @@ A **modular monolith host** you can copy for any product. Domain code does not
 belong in the host. Put the product name and capabilities in
 `doc/Features-list.txt`, then add modules one at a time.
 
-**Current stage:** **Product** — requirements analyzed (R1); catalog list
-F1–F15 (WooCommerce small/mid). Folder emptied. Skeleton (R2) and module
-docs (R2b) to rebuild. Wall test (R3) not run yet. F1–F15 and A1–A5 open.
+**Current stage:** **Product** — 12 catalog features specified; Identity is
+the next planned module with 14 numbered security and account features.
+Product implementation is feature-complete, but production gates remain open.
 One feature / use case per turn. Always flip checkboxes in
 `doc/Features-list.txt` **and** this file when work completes.
 
@@ -47,6 +47,34 @@ must not name real modules or features — use placeholders there (Module A,
 schema `alpha`, table `widget`). Product scope lives only in
 `doc/Features-list.txt` (and the summary below, which must stay in sync).
 
+## The Core Backend Modules
+
+Named capabilities. Product has its 12-feature list; Identity now has a
+14-feature requirements list. Do not implement Identity until its blueprint
+is approved and Product's active production gates are resolved.
+
+1. **Identity (User) Module** [ ]
+   Responsibility: Acts as the security checkpoint for the REST API. Manages authentication, secure session tokens, profile data, and Role-Based Access Control (RBAC).
+   Boundary: Differentiates a standard customer from an admin, protecting the routes of all other modules without owning any order or cart data itself.
+
+2. **Product Module** [~]
+   Responsibility: Manages the catalog lifecycle, including creating, drafting, publishing, and archiving core product records. Handles multi-option variants, pricing tiers, media galleries, and hierarchical categories.
+   Boundary: Completely isolated from physical stock counts, cart discounts, and user reviews.
+
+3. **Inventory Module** [ ]
+   Responsibility: The private back room for physical stock. Tracks warehouse quantities, handles stock reservations during checkout, and manages availability statuses.
+   Boundary: Operates purely on SKUs and quantities; it relies on the Product module's public contract to resolve item details if needed, rather than querying the product database directly.
+
+4. **Orders Module** [ ]
+   Responsibility: Orchestrates the shopping cart, checkout calculations, payment processing, and the overall lifecycle of a customer order.
+   Boundary: Cannot calculate its own base prices or check database stock directly. It must query the Product and Inventory modules via their public interfaces (contracts) before safely completing a transaction.
+
+5. **Promotions Module** [ ]
+   Responsibility: Manages dynamic cart-level logic, promotional campaigns, and coupon codes.
+   Boundary: Calculates temporary checkout discounts but does not permanently alter the base retail pricing stored securely in the Product module.
+
+Notebook copy: `readme.txt`. Feature ids: `doc/Features-list.txt`.
+
 ## Product module
 
 Folder: `modules/product` · Schema: `product` · Status: in progress (files wiped; rebuild next)
@@ -59,7 +87,7 @@ Folder: `modules/product` · Schema: `product` · Status: in progress (files wip
 | R2 | Skeleton (package, provider, layers, Deptrac, empty tests) | open |
 | R2b | Module docs (`docs/` folder-structure, database, api) | open |
 | R3 | Schema wall test passes against real Postgres | open |
-| R4 | Features F1–F15 complete | open |
+| R4 | Features 1–12 complete | open |
 | R5 | Architectural boundaries A1–A5 verified | open |
 
 Module documentation: `modules/product/docs/features-list.txt`,
@@ -90,33 +118,31 @@ categories, attributes, media, merchandising links. Nothing else.
 
 **Architectural boundaries (must hold)**
 
-| Id | Requirement |
-| --- | --- |
-| A1 | REST API front door — format/transport only; no business rules | open |
+| Id | Requirement | Status |
+| --- | --- | --- |
+| A1 | REST API front door — format/transport only; no business rules | done |
 | A2 | Schema sealed (`product.*`) — no cross-schema FKs or joins in | open |
-| A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn | open |
+| A3 | State changes emit `ProductUpdated` to `platform.outbox`, same txn | done |
 | A4 | Storefront reads via optimized batch queries (under 100ms target) | open |
-| A5 | `ProductApi` contract; DTOs only | open |
+| A5 | `ProductApi` contract; DTOs only | done |
 
-**Features** (full text: `modules/product/docs/features-list.txt`)
+**Features** — 12 items, this order (full text: `modules/product/docs/features-list.txt`).
+One per turn. Do not skip ahead.
 
-| Id | Feature |
-| --- | --- |
-| F1 | Lifecycle Control — create, update, draft, publish, archive |
-| F2 | Identifiers & Details — title, short/long description, brand; SKU, barcode, GTIN, UPC, EAN, ISBN, MPN |
-| F3 | Pricing — base, compare-at/sale, sale start/end, cost, tax status/class |
-| F4 | Types — physical, virtual, downloadable, grouped, bundles/kits, affiliate |
-| F5 | Multi-option variants — SKU, barcode, price per combo, default variant |
-| F6 | Attributes — reusable specs, swatches, facet flags |
-| F7 | Media — gallery, thumbnail, reorder, variant map, downloads (limit/expiry) |
-| F8 | Categorization — nested trees, tags, manual or automated collections |
-| F9 | SEO — slugs, meta title/description, slug redirects |
-| F10 | Relationships — related, up-sell, cross-sell, frequently bought together |
-| F11 | Operations — admin list, duplicate, bulk edit, CSV import/export |
-| F12 | Catalog visibility — visible / catalog / search / hidden |
-| F13 | Featured flag |
-| F14 | Shipping catalog data — weight, dimensions, shipping class (no quotes) |
-| F15 | Sold individually — one per order (catalog flag) |
+| # | Feature | Status |
+| --- | --- | --- |
+| 1 | Product Lifecycle & Visibility — create, update, draft, publish, archive; catalog only / search only / hidden / featured | done |
+| 2 | Identifiers & Details — titles, short/long description, brand; SKU, barcode, GTIN, UPC, EAN, ISBN, MPN | done |
+| 3 | Pricing Models — base, compare-at/sale, sale start/end UTC, cost, tax status/class | done |
+| 4 | Product Types & Limits — physical, virtual, digital, grouped, bundles/kits, affiliate; sold individually | done |
+| 5 | SEO — slugs (products, categories, collections), meta title/description, slug redirects | done |
+| 6 | Shipping Catalog Data — weight, dimensions, shipping class (no quotes) | done |
+| 7 | Global Specifications — reusable specs, swatches, facet flags | done |
+| 8 | Multi-option variants — unique SKU, barcode, price per combo, default variant | done |
+| 9 | Media Galleries — thumbnail, reorder, variant map, downloads (limit/expiry) | done |
+| 10 | Taxonomies — nested trees, tags, manual or automated collections | done |
+| 11 | Relationships — related, up-sell, cross-sell, frequently bought together | done |
+| 12 | Operations — admin list, duplicate, bulk edit, CSV import/export | done |
 
 **Out of scope for the Product module** (do not implement here)
 
@@ -127,9 +153,19 @@ categories, attributes, media, merchandising links. Nothing else.
 | Orders | Cart, checkout, payments, tax rates, download entitlement |
 | Customer Reviews | Stars, reviews, Q&A |
 
+## Identity module
+
+Folder: `modules/identity` · Schema: `identity` · Status: planned
+
+Identity owns credentials, sessions, profile data, addresses, account status,
+privacy requests, roles, permissions, and security audit events. Its numbered
+requirements are documented in `modules/identity/docs/features-list.txt` and
+mirrored in `doc/Features-list.txt`. It must not own order history, carts,
+promotions, reviews, Product catalog data, inventory, or customer pricing.
+
 ### Backlog modules (named only — no feature lists yet)
 
-Inventory · Promotions · Orders · Customer Reviews
+Inventory · Orders · Promotions · Customer Reviews
 
 ## The architecture — decided, do not re-open
 
@@ -208,6 +244,11 @@ In Laravel this means one Composer path package per module. Contracts
 live in `src/Contracts/` inside that package, not as a second package.
 Domain code lives under `modules/`, never in `app/`; `app/` holds host
 concerns only. All UI lives under `frontend/`, outside every module.
+
+**Comment every class.** Every production class, enum, and interface in
+`src/` has a class docblock: what it is, what it is not, the rules a new
+developer needs. Methods get a comment only when the rule is not obvious
+from the name. Do not narrate the next line. Tests do not need this.
 
 ## Laravel: forbidden, though idiomatic
 

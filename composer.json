@@ -8,6 +8,7 @@
         "php": "^8.3",
         "laravel/framework": "^13.0",
         "laravel/tinker": "^3.0",
+        "modules/product": "@dev",
         "packages/platform": "@dev",
         "packages/shared": "@dev"
     },
@@ -37,7 +38,8 @@
         "psr-4": {
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
-            "Database\\Seeders\\": "database/seeders/"
+            "Database\\Seeders\\": "database/seeders/",
+            "Modules\\Product\\": "modules/product/src/"
         }
     },
     "autoload-dev": {

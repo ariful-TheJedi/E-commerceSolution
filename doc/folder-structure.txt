@@ -140,8 +140,15 @@ private. docs/ and tests/ sit beside src/.
     │       └── AlphaApiImpl.php      Implements Contracts/AlphaApi
     │
     └── tests/
-        ├── Unit/                     Domain rules. No database
-        └── Integration/              Real Postgres. This schema only
+        ├── use-cases.txt             Living Use Case Cards. Step 1.
+        ├── Unit/
+        │   ├── Domain/               Pure PHP rules. No Laravel. No DB
+        │   └── Application/          Handlers. In-memory fakes. Fake outbox
+        ├── Feature/
+        │   ├── Api/                  HTTP front door. JSON shape only
+        │   ├── Infrastructure/       This schema only. SQLite mapping ok
+        │   └── Listeners/            Event → row. Run twice. Same state
+        └── Architecture/             This module's layers do not mix
 
     modules/beta/ is the same shape.
 
@@ -159,6 +166,13 @@ EACH FOLDER (one line)
     Persistence/      Every SQL file, model, seeder, factory for this schema
     Bootstrap/        CREATE SCHEMA + roles + grants
     tests/            This module only. Never another module's tables
+    use-cases.txt     Living Use Case Cards. Write and update at Step 1
+    Unit/Domain       Pure PHP rules. No Laravel. No DB
+    Unit/Application  Handlers. In-memory fakes. Fake outbox
+    Feature/Api       HTTP shape. No business rules
+    Feature/Infrastructure  Persistence in this schema
+    Feature/Listeners Outbox reaction. Assert the row. Run twice
+    Architecture/     This module's layers do not mix
 
 
 THE RULE THIS SHAPE ENCODES

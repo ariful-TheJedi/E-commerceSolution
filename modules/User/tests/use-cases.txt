@@ -1,0 +1,26 @@
+===============================================================================
+                 I D E N T I T Y   —   U S E   C A S E S
+===============================================================================
+
+Blueprint source: modules/identity/docs/features-list.txt
+Authoritative scope: doc/Features-list.txt
+
+Build one feature at a time, inside-out: Domain, Contracts, Application,
+Infrastructure, API, then registration and architecture tests.
+
+Feature cards will be written here before implementation begins.
+
+[ ] 1.  Registration & Account Creation
+[ ] 2.  Login & Session Token Issuance
+[ ] 3.  Email Verification
+[ ] 4.  Credential Recovery
+[ ] 5.  Password & Credential Changes
+[ ] 6.  Session Control & Revocation
+[ ] 7.  Profile Details
+[ ] 8.  Address Book
+[ ] 9.  Account Status & Deletion Requests
+[ ] 10. Roles & Permissions (RBAC)
+[ ] 11. Route Protection Integration
+[ ] 12. Abuse Protection & Security Policy
+[ ] 13. Personal Data Export & Privacy Requests
+[ ] 14. Security Audit Events

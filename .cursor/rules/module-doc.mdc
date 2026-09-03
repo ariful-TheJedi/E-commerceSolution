@@ -1,0 +1,12 @@
+---
+description: Update modules/<name>/docs/doc.md in the same turn as each feature
+alwaysApply: true
+---
+
+# Public surface doc
+
+When a feature is added or changed on a module (HTTP route, JSON body/shape, status codes, contract interface, DTO, event), update `modules/<name>/docs/doc.md` in the **same turn**.
+
+That file is how other modules and external clients use the module. Stale `doc.md` = incomplete work.
+
+Do not split it into `api.md` / `contracts.md`. Do not skip the update because the code compiled.

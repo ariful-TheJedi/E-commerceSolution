@@ -498,8 +498,10 @@ B  AN ACTION THAT CHANGES STATE
     │    │                    │ Untested rules are not rules.│
     └────┴────────────────────┴──────────────────────────────┘
 
-    Fake what is outside the process. Never fake the database, the
-    bus, or the module under test. How-to: dev-workflow.txt.
+    Fake what is outside the process. Never fake the module under test.
+    Application tests may use in-memory ports (not Eloquent).
+    How-to for TDD layers: testing-workflow.txt.
+    How-to for slices: dev-workflow.txt.
 
 GROWTH - pay for a stage when you are in it, not before.
 

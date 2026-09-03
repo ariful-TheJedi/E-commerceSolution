@@ -1,30 +1,226 @@
-Core Identity & Pricing
-[ ] Lifecycle Control: Manage product states by creating, updating, drafting, publishing, and archiving core records.
-[ ] Catalog visibility: Show in catalog and search, catalog only, search only, or hidden (WooCommerce visibility).
-[ ] Featured: Flag a product for home and merchandising lists.
-[ ] Identifiers & Details: Titles, short and long descriptions, brands, and identifiers including SKU, barcode, GTIN, UPC, EAN, ISBN, and MPN.
-[ ] Pricing Structure: Base retail price, compare-at / sale price, sale start and end (UTC), internal cost, tax status and tax class.
-[ ] Product Types: Physical (ships), virtual (no shipping), downloadable (files), grouped, bundles / kits, and affiliate / external URLs.
-[ ] Shipping catalog data: Weight, length / width / height, and shipping class. No rate quotes here.
-[ ] Sold individually: Limit to one of this product per order (catalog flag, not stock).
+Product module — 12 features. Build top to bottom. One per turn.
+This file is what the agent must understand before a slice. Do not invent extra work.
 
-Variations & Media
-[ ] Multi-Option Variants: Individual SKU, barcode, and price for every option combination, plus a default variant.
-[ ] Attributes & Specifications: Reusable specs, visual swatches, and facet flags for storefront filters.
-[ ] Media Management: Image sets, primary thumbnail, reorder, map photos to variants, digital downloads with download limit and expiry.
+A product is a catalog listing. A variant is the SKU you buy.
+Simple product = one default variant (that row can land with later slices).
+Money = integer minor units + currency. Time = UTC. Ids = UUIDv7.
+Writes that change state emit ProductUpdated to platform.outbox, same transaction.
 
-Organization, SEO & Operations
-[ ] Categorization: Nested category trees, tags, and manual or automated collections.
-[ ] SEO Optimization: URL slugs, meta titles and descriptions, and slug redirects.
-[ ] Relationships: Related items, up-sells, cross-sells, and frequently bought together (manual links).
-[ ] Operations: Admin list, duplicate product, bulk edit, and CSV import / export.
 
-Out of scope
-[-] Stock, warehouses, reservations, backorders
-[-] Coupons, sale campaigns, customer prices
-[-] Cart, checkout, payments, tax rates
+[x]  1.  Product Lifecycle & Visibility
+
+     What it is
+       Own the product record: create it, change it, and decide if the
+       storefront may show it.
+
+     Status (one of)
+       draft     — not for sale, not on the public catalog
+       active    — published (this list says "publish")
+       archived  — kept for history, not sold
+
+     Visibility (one of)
+       visible   — catalog and search
+       catalog   — catalog lists only, not search
+       search    — search only, not category/catalog lists
+       hidden    — not listed; may still be opened by direct URL if we allow it
+
+     Featured
+       A yes/no flag for home and merchandising lists. Not a visibility value.
+
+     Must
+       Create, update, draft, publish (→ active), archive.
+       Other modules ask through ProductApi (e.g. is this sellable), never tables.
+
+     Must not
+       Stock, cart, reviews. Do not invent password-protected or scheduled publish.
+
+
+    [x]  11.  Relationships
+
+     What it is
+       The words and codes humans and scanners use.
+
+     On the listing (product)
+       Title (required). Short description. Long description. Brand (optional).
+
+     On the SKU (variant) — unique codes
+       SKU (required, unique). Barcode. GTIN (covers UPC / EAN / ISBN as stored).
+       MPN.
+
+     Must not
+       Generate barcodes. Do not treat SKU as stock quantity.
+
+
+[x]  3.  Pricing Models
+
+     What it is
+       Catalog prices on the SKU. Not a coupon. Not a customer price list.
+
+     Fields
+       Base retail price (required).
+       Compare-at / sale price (optional display).
+       Sale start and sale end (UTC, optional).
+       Internal cost (optional, not shown to shoppers).
+       Tax status: taxable or none.
+       Tax class: a code name only. Real tax rates live in Orders.
+
+     Must not
+       Coupons, campaigns, B2B price lists, checkout totals.
+
+
+[x]  4.  Product Types & Limits
+
+     What it is
+       What kind of listing this is, plus a one-per-order flag.
+
+     Type (one of)
+       physical      — ships (weight/dims belong in feature 6)
+       virtual       — no shipping
+       downloadable  — files (feature 9 stores files; Orders grants download)
+       grouped       — parent pointing at other products
+       bundle        — kit of components
+       external      — affiliate / buy-elsewhere URL
+
+     Sold individually
+       Catalog flag: at most one of this product per order.
+       Not inventory. Checkout reads the flag later.
+
+     Must not
+       Calculate shipping cost. Do not fulfil digital downloads here.
+
+
+[x]  5.  SEO
+
+     What it is
+       How crawlers and URLs find catalog pages.
+
+     Includes
+       Unique URL slug on products, categories, and collections.
+       Meta title and meta description on the product.
+       When a slug changes: keep the old path in url_redirects (do not rename
+       the old row in place). Additive first.
+
+     Must not
+       A search engine. Sitemap generator is not this feature unless you add it.
+       Translations.
+
+
+[x]  6.  Shipping Catalog Data
+
+     What it is
+       Numbers and a class name another module can quote against later.
+
+     Includes
+       Weight (grams). Length, width, height (mm).
+       Shipping class (label only, e.g. bulky). Optional on the product.
+      Variant may override weight/dims. API fields are weight_g, length_mm,
+      width_mm, height_mm, variant_* equivalents, and shipping_class.
+
+     Must not
+       Live rates, zones, carriers, checkout shipping cost.
+
+
+[x]  7.  Global Specifications
+
+     What it is
+       Reusable facts shared across the catalog, then assigned to a product
+       (and optionally a variant).
+
+     Includes
+       Attribute definitions (e.g. material, warranty).
+       Options on those attributes.
+       Visual swatches (color/pattern display).
+      Facet flag: storefront may filter on this. API supports typed
+      assignments to products and optional variants.
+
+     Must not
+       Variant option combos (that is feature 8). Not search-engine indexing.
+
+
+[x]  8.  Multi-Option Variants
+
+     What it is
+       Every buyable combination (size × color, etc.).
+
+     Includes
+       Options and option values on the product.
+       One variant row per combination: unique SKU, barcode, own price.
+       Exactly one default variant per product that sells.
+       A product with no options still has one default variant.
+
+    API adds product options, option values, and SKU combinations. Each
+    variant can select at most one value per option; default selection is
+    explicit and replacing it clears the previous default.
+
+    Must not
+       Stock per variant. Do not invent infinite custom options at checkout.
+
+
+[x]  9.  Media Galleries
+
+     What it is
+       Pictures and downloadable files for the listing. Bytes live on the
+       platform media disk; this module stores paths.
+
+     Includes
+       Image set on the product. One primary storefront thumbnail.
+       Reorder (position). Map an image to a specific variant (optional).
+       Digital files: download limit and expiry days (catalog metadata).
+
+     Must not
+       Who may download after purchase (Orders). Not a CDN product.
+
+
+[ ] 10.  Taxonomies
+
+     What it is
+       How the catalog is grouped for browsing.
+
+     Includes
+       Nested category tree (parent/child). A product in many categories;
+       one canonical category.
+       Tags (flat, many per product).
+       Collections: manual pick-list or automatic rules (catalog rules only,
+       no stock fields).
+
+     Must not
+       Search engine. Not merchandising links (that is feature 11).
+
+    [x] 10.  Taxonomies
+[ ] 11.  Relationships
+
+     What it is
+       Manual "you may also want" links between products.
+
+     Kinds
+       Related. Up-sell. Cross-sell. Alternative suggestions.
+       Frequently bought together.
+       Shopper does not auto-generate these.
+
+     Must not
+       Coupons that discount a bundle. Not order history.
+
+
+[x] 12.  Operations
+
+     What it is
+       Admin work on many products at once.
+
+     Includes
+       Admin list (cursor pagination, not offset).
+       Duplicate a product (new ids, new slugs, new SKUs).
+       Bulk edit.
+       CSV import and export.
+
+     Must not
+       Storefront UI. A rule only in the admin screen is not a rule.
+
+
+Not in this module
+[-] Inventory: stock, warehouses, reservations, backorders
+[-] Checkout & promotions: cart rules, coupons, campaigns, checkout, payments, tax rates
+[-] Customer feedback: star ratings, reviews, Q&A
 [-] Download entitlement after purchase
-[-] Reviews
 [-] Shipping quotes
 [-] Search engine
 [-] Translations

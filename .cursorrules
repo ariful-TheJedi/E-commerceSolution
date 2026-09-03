@@ -1,5 +1,5 @@
 Modular monolith host. Product lives in modules/ and doc/Features-list.txt, not here.
-STAGE: Product module skeleton in progress. Features F1–F10 not started.
+STAGE: Product module skeleton in progress. Features 1–12 not started.
 STACK: Laravel (PHP) API, PostgreSQL, Blade public site + React admin.
        Versions: doc/tech-stack.txt. Shape: doc/architecture-map.txt.
 
@@ -11,10 +11,11 @@ READ THESE FIRST  - before any plan, file, or answer
   2. doc/folder-structure.txt     where every file goes.
   3. doc/module-guideline.txt     how to build or change a module.
   4. doc/dev-workflow.txt         how we work together. One slice per turn.
+  5. doc/testing-workflow.txt     Cycle: blueprint → RED/GREEN per layer.
 
 If two of those disagree: doc/architecture-map.txt wins on shape,
 doc/folder-structure.txt wins on paths, doc/module-guideline.txt wins on
-procedure.
+procedure, doc/testing-workflow.txt wins on how a feature is tested.
 
 Do not name real modules or features. Use placeholders: Module A,
 schema alpha, table widget. Architecture, which modules exist, and
@@ -41,6 +42,11 @@ one's agreed feature list is done (or the developer explicitly parks it).
     change a module (code, schema, migration, route, contract, event,
     feature status), UPDATE that module's docs in the SAME turn.
     Stale module docs = incomplete work. Do not skip this.
+  - Feature slice → doc.md: when a feature is added or changed on a
+    module (HTTP route, JSON shape, contract, event), update
+    modules/<name>/docs/doc.md in the SAME turn. That file is the
+    public surface for other modules and external clients. Do not
+    leave it stale. Do not split it back into api.md / contracts.md.
   - Develop from Features-list + AGENTS.md only. Never invent modules
     or features. One active module at a time; one feature per turn.
   - When the developer names a module or feature: UPDATE both
@@ -102,8 +108,9 @@ decide if it was right.
   - Do not refactor anything you were not asked to touch.
   - Point at the four files above. Do not paste their rules back.
 
-Pipeline: require → plan (no files) → skeleton → one slice → tests
-          → composer check → human review. Details: doc/dev-workflow.txt.
+Pipeline: blueprint → 3-step loop per layer (Domain → Application
+          → Infrastructure → API) → composer check → human review.
+          Cycle: doc/testing-workflow.txt. Stages: doc/dev-workflow.txt.
 
 
 ===============================================================================
@@ -151,7 +158,15 @@ No app/Models. No paginate() on lists that grow → cursorPaginate().
 A rule only in a FormRequest is not a rule (contracts skip it).
 Module names never appear in URLs.
 Storefront controllers call contracts only. React talks to /api/v1 only.
-Never fake the database, the event bus, or the module under test.
+Do not generate Inertia, Livewire, TypeScript, or a global frontend store.
+Never fake the module under test. Never fake the event bus in
+integration/system tests. Application tests may use in-memory port
+fakes (not Eloquent). Domain tests never boot Laravel or the database.
+Do not use Event::assertDispatched as the only proof a listener worked.
+Never run `php artisan test` or Pest to declare RED or GREEN. YOU run it.
+Every production class, enum, and interface in a module's src/ has a
+class comment: what it is, what it is not, the rules. Not line-by-line
+narration. Tests do not need this.
 
 If one of these looks like the only answer, say so. That is a boundary
 signal, not permission.
@@ -166,3 +181,86 @@ WORKING STYLE
 
 Answer what was asked. Do not expand scope. Short over long.
 If a request conflicts with a law, say so and explain the cost.
+
+
+===============================================================================
+TESTING WORKFLOW  - cycle for a module feature
+===============================================================================
+
+Details: doc/testing-workflow.txt. Same cycle: readme.txt.
+
+CRITICAL: do NOT use or generate Inertia, Livewire, TypeScript, or a
+global state meta-framework. Vanilla React + Blade only.
+
+One feature / use case per turn. THE AGENT never runs the test.
+
+PHASE 1  —  BLUEPRINT     (no code)
+
+    pick one feature
+            │
+            ▼
+    list rules + steps + tables
+            │
+            ▼
+    name the classes          do not write them yet
+            │
+            ▼
+    write the card            tests/use-cases.txt
+            │
+            ▼
+         YOU approve  ──►  Phase 2
+
+PHASE 2  —  3-STEP LOOP     (repeat for each layer)
+
+    ┌─────────┐   php artisan test    ┌─────────┐
+    │  TEST   │ ────────────────────► │   RED   │
+    └────┬────┘                       └────┬────┘
+         │ paste RED                       │
+         ▼                                 │
+    ┌─────────┐                            │
+    │  CODE   │  minimal feature code      │
+    └────┬────┘                            │
+         ▼                                 │
+    ┌─────────┐   php artisan test    ┌─────────┐
+    │  PASS   │ ────────────────────► │  GREEN  │
+    └─────────┘                       └────┬────┘
+                                           ▼
+                                next layer ──► Phase 3
+
+    If TEST is already GREEN, the test is wrong — rewrite it.
+    Do not write production code before YOU pasted RED.
+
+PHASE 3  —  LAYERS     (this order)
+
+    DOMAIN  →  APPLICATION  →  INFRASTRUCTURE  →  API
+    GREEN        GREEN              GREEN           done
+
+Pest: it() / test(). Input → Call → Verify.
+No new OO TestCase class per feature.
+
+Layer tests (modules/<name>/tests/):
+
+  Domain           tests/Unit/Domain/
+                   entity method. state change or exception.
+                   no Laravel, no migrations, no Eloquent.
+  Application      tests/Unit/Application/
+                   in-memory ports. handler called the right methods.
+                   event object on the fake outbox.
+  Infrastructure   tests/Feature/Infrastructure/
+                   this schema only. in-memory SQLite.
+                   no cross-schema queries.
+                   Wall + cross-schema proofs = real Postgres
+                   (architecture-map.txt).
+  API              tests/Feature/Api/
+                   $this->postJson(). 422 validation.
+                   exact JSON shape for vanilla React.
+                   no business rules.
+  Listeners        tests/Feature/Listeners/
+                   assertDatabaseHas. same event ID twice.
+                   never Event::assertDispatched as the only proof.
+  Boundaries       tests/Architecture/
+                   layers do not mix.
+
+Forbidden: Eloquent/factory across modules; cross-schema queries;
+DB setup to test a domain rule; React with TypeScript or Inertia;
+Livewire; business rules only in FormRequest or only in React.

@@ -50,6 +50,7 @@ CREATE TABLE product.products (
     id                    UUID PRIMARY KEY,
     brand_id              UUID NULL REFERENCES product.brands (id),
     shipping_class_id     UUID NULL REFERENCES product.shipping_classes (id),
+    shipping_class        TEXT NULL,
     default_variant_id    UUID NULL,
     type                  TEXT NOT NULL,
     status                TEXT NOT NULL,
@@ -60,6 +61,7 @@ CREATE TABLE product.products (
     slug                  TEXT NOT NULL UNIQUE,
     short_description     TEXT NULL,
     description           TEXT NULL,
+    brand                 TEXT NULL,
     external_url          TEXT NULL,
     tax_status            TEXT NOT NULL,
     tax_class             TEXT NULL,
@@ -347,7 +349,7 @@ CREATE TABLE product.product_relations (
     to_product_id    UUID NOT NULL REFERENCES product.products (id) ON DELETE CASCADE,
     kind             TEXT NOT NULL,
     PRIMARY KEY (from_product_id, to_product_id, kind),
-    CONSTRAINT product_relations_kind_chk CHECK (kind IN ('related', 'upsell', 'cross_sell', 'fbt')),
+    CONSTRAINT product_relations_kind_chk CHECK (kind IN ('related', 'upsell', 'cross_sell', 'alternative', 'fbt')),
     CONSTRAINT product_relations_no_self_chk CHECK (from_product_id <> to_product_id)
 );
 
@@ -385,3 +387,8 @@ BEGIN
     );
 END
 $connect$;
+
+-- Adapter writes platform.outbox on this connection (same transaction).
+-- Platform owns the table; this grant is the documented write exception.
+GRANT USAGE ON SCHEMA platform TO product_app;
+GRANT INSERT, SELECT ON platform.outbox TO product_app;
